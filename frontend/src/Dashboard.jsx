@@ -7,6 +7,7 @@ import RouterManager from "./RouterManager";
 import CustomerManager from "./CustomerManager";
 import PlanManager from "./PlanManager";
 import OnlineClients from "./OnlineClients";
+import ClientTraffic from "./ClientTraffic";
 
 import {
   BarChart,
@@ -66,6 +67,7 @@ function Dashboard({ onLogout }) {
 
   const canViewCustomers = ["admin", "tecnico", "operador"].includes(role);
   const canViewOnline = ["admin", "tecnico"].includes(role);
+  const canViewClientTraffic = ["admin", "tecnico"].includes(role);
 
   const canViewPlans = [
     "admin",
@@ -284,13 +286,7 @@ function Dashboard({ onLogout }) {
   return (
     <div className="light-app min-h-screen bg-slate-50 text-slate-950 flex">
       <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col">
-        <div className="mb-10 flex items-center justify-center">
-  <img
-    src={logo}
-    alt="HighSpeed"
-    className="h-24 w-auto max-w-[240px] object-contain"
-  />
-</div>
+        <img src={logo} alt="HighSpeed" className="w-48 mb-8" />
 
         <div className="space-y-2 flex-1">
           <SidebarButton
@@ -315,6 +311,15 @@ function Dashboard({ onLogout }) {
               label="PPPoE Online"
               active={section === "online"}
               onClick={() => setSection("online")}
+            />
+          )}
+
+          {canViewClientTraffic && (
+            <SidebarButton
+              icon="📊"
+              label="Tráfico Clientes"
+              active={section === "clientTraffic"}
+              onClick={() => setSection("clientTraffic")}
             />
           )}
 
@@ -656,6 +661,10 @@ function Dashboard({ onLogout }) {
         {section === "customers" && canViewCustomers && <CustomerManager />}
 
         {section === "online" && canViewOnline && <OnlineClients />}
+
+        {section === "clientTraffic" && canViewClientTraffic && (
+          <ClientTraffic />
+        )}
 
         {section === "plans" && canViewPlans && <PlanManager />}
 

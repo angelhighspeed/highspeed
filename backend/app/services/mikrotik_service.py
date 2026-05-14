@@ -13,7 +13,7 @@ def get_mikrotik_api():
         password=PASSWORD,
         host=HOST,
         port=PORT,
-        timeout=5
+        timeout=5,
     )
 
 
@@ -25,7 +25,7 @@ def get_system_resources():
             "uptime",
             "version",
             "cpu-load",
-            "free-memory"
+            "free-memory",
         )
     )
 
@@ -45,14 +45,20 @@ def get_pppoe_active():
             "address",
             "uptime",
             "service",
-            "caller-id"
+            "caller-id",
         )
     )
 
 
 def find_pppoe_secret(name: str):
     api = get_mikrotik_api()
-    secrets = list(api.path("/ppp/secret").select(".id", "name"))
+
+    secrets = list(
+        api.path("/ppp/secret").select(
+            ".id",
+            "name",
+        )
+    )
 
     for secret in secrets:
         if secret.get("name") == name:
@@ -79,21 +85,23 @@ def create_pppoe_secret(secret):
     existing = find_pppoe_secret(secret.name)
 
     if existing:
-        ppp_secret.update(**{
-            ".id": existing[".id"],
-            **data
-        })
+        ppp_secret.update(
+            **{
+                ".id": existing[".id"],
+                **data,
+            }
+        )
 
         return {
             "message": "PPPoE secret actualizado",
-            "name": secret.name
+            "name": secret.name,
         }
 
     ppp_secret.add(**data)
 
     return {
         "message": "PPPoE secret creado",
-        "name": secret.name
+        "name": secret.name,
     }
 
 
@@ -103,7 +111,7 @@ def update_pppoe_secret(
     password: str,
     profile: str = "default",
     remote_address: str | None = None,
-    disabled: bool = False
+    disabled: bool = False,
 ):
     api = get_mikrotik_api()
     ppp_secret = api.path("/ppp/secret")
@@ -122,22 +130,24 @@ def update_pppoe_secret(
         data["remote-address"] = remote_address
 
     if existing:
-        ppp_secret.update(**{
-            ".id": existing[".id"],
-            **data
-        })
+        ppp_secret.update(
+            **{
+                ".id": existing[".id"],
+                **data,
+            }
+        )
 
         return {
             "message": "PPPoE secret actualizado",
             "old_name": old_name,
-            "name": name
+            "name": name,
         }
 
     ppp_secret.add(**data)
 
     return {
         "message": "PPPoE secret creado porque no existía",
-        "name": name
+        "name": name,
     }
 
 
@@ -148,16 +158,21 @@ def disable_pppoe_secret(name: str):
     existing = find_pppoe_secret(name)
 
     if not existing:
-        return {"error": "PPPoE secret no encontrado"}
+        return {
+            "error": "PPPoE secret no encontrado",
+            "name": name,
+        }
 
-    ppp_secret.update(**{
-        ".id": existing[".id"],
-        "disabled": "yes"
-    })
+    ppp_secret.update(
+        **{
+            ".id": existing[".id"],
+            "disabled": "yes",
+        }
+    )
 
     return {
         "message": "Cliente PPPoE deshabilitado",
-        "name": name
+        "name": name,
     }
 
 
@@ -168,16 +183,21 @@ def enable_pppoe_secret(name: str):
     existing = find_pppoe_secret(name)
 
     if not existing:
-        return {"error": "PPPoE secret no encontrado"}
+        return {
+            "error": "PPPoE secret no encontrado",
+            "name": name,
+        }
 
-    ppp_secret.update(**{
-        ".id": existing[".id"],
-        "disabled": "no"
-    })
+    ppp_secret.update(
+        **{
+            ".id": existing[".id"],
+            "disabled": "no",
+        }
+    )
 
     return {
         "message": "Cliente PPPoE habilitado",
-        "name": name
+        "name": name,
     }
 
 
@@ -185,20 +205,31 @@ def remove_pppoe_active(name: str):
     api = get_mikrotik_api()
     active = api.path("/ppp/active")
 
-    sessions = list(active.select(".id", "name"))
+    sessions = list(
+        active.select(
+            ".id",
+            "name",
+        )
+    )
+
+    removed = 0
 
     for session in sessions:
         if session.get("name") == name:
             active.remove(session[".id"])
+            removed += 1
 
-            return {
-                "message": "Conexión PPPoE activa eliminada",
-                "name": name
-            }
+    if removed > 0:
+        return {
+            "message": "Conexión PPPoE activa eliminada",
+            "name": name,
+            "removed": removed,
+        }
 
     return {
         "message": "No había conexión activa PPPoE",
-        "name": name
+        "name": name,
+        "removed": 0,
     }
 
 
@@ -215,7 +246,7 @@ def get_interface_traffic(interface_name: str = "sfp-sfpplus1"):
             ".id",
             "name",
             "rx-byte",
-            "tx-byte"
+            "tx-byte",
         )
     )
 
@@ -232,12 +263,103 @@ def get_interface_traffic(interface_name: str = "sfp-sfpplus1"):
             "interface": interface_name,
             "rx_bytes": 0,
             "tx_bytes": 0,
-            "error": "Interfaz no encontrada"
+            "error": "Interfaz no encontrada",
         }
 
     return {
         "timestamp": datetime.now().isoformat(),
         "interface": interface_name,
-        "rx_bytes": int(target.get("rx-byte", 0)),
-        "tx_bytes": int(target.get("tx-byte", 0)),
+        "rx_bytes": int(target.get("rx-byte", 0) or 0),
+        "tx_bytes": int(target.get("tx-byte", 0) or 0),
     }
+
+
+def get_pppoe_client_traffic():
+    api = get_mikrotik_api()
+
+    active_sessions = list(
+        api.path("/ppp/active").select(
+            "name",
+            "address",
+            "uptime",
+            "service",
+            "caller-id",
+        )
+    )
+
+    interfaces = list(
+        api.path("/interface").select(
+            ".id",
+            "name",
+            "type",
+            "running",
+            "rx-byte",
+            "tx-byte",
+        )
+    )
+
+    results = []
+
+    for session in active_sessions:
+        username = str(session.get("name", "")).strip()
+        username_clean = username.lower()
+
+        interface_match = None
+
+        for interface in interfaces:
+            interface_name = str(interface.get("name", "")).strip()
+
+            interface_clean = (
+                interface_name
+                .replace("<", "")
+                .replace(">", "")
+                .replace("pppoe-", "")
+                .replace("ppp-", "")
+                .lower()
+                .strip()
+            )
+
+            if (
+                interface_clean == username_clean
+                or username_clean in interface_clean
+                or interface_clean in username_clean
+            ):
+                interface_match = interface
+                break
+
+        rx_bytes = 0
+        tx_bytes = 0
+        interface_name = None
+
+        if interface_match:
+            rx_bytes = int(interface_match.get("rx-byte", 0) or 0)
+            tx_bytes = int(interface_match.get("tx-byte", 0) or 0)
+            interface_name = interface_match.get("name")
+
+        results.append(
+            {
+                "name": username,
+                "address": session.get("address"),
+                "uptime": session.get("uptime"),
+                "service": session.get("service"),
+                "caller_id": session.get("caller-id"),
+                "interface": interface_name,
+                "rx_bytes": rx_bytes,
+                "tx_bytes": tx_bytes,
+            }
+        )
+
+    return results
+def get_mikrotik_interfaces_debug():
+    api = get_mikrotik_api()
+
+    return list(
+        api.path("/interface").select(
+            ".id",
+            "name",
+            "type",
+            "running",
+            "rx-byte",
+            "tx-byte",
+        )
+    )

@@ -56,6 +56,10 @@ function CustomerManager() {
   const [bulkAction, setBulkAction] = useState("");
   const [expandedId, setExpandedId] = useState(null);
 
+  const [excelFile, setExcelFile] = useState(null);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [excelImportResult, setExcelImportResult] = useState(null);
+
   const [form, setForm] = useState(emptyCustomer);
   const [editingId, setEditingId] = useState(null);
 
@@ -70,9 +74,58 @@ function CustomerManager() {
       axios.get(`${API}/routers`, headers),
     ]);
 
-    setCustomers(customersRes.data);
-    setPlans(plansRes.data);
-    setRouters(routersRes.data);
+    setCustomers(Array.isArray(customersRes.data) ? customersRes.data : []);
+    setPlans(Array.isArray(plansRes.data) ? plansRes.data : []);
+    setRouters(Array.isArray(routersRes.data) ? routersRes.data : []);
+  };
+
+  const importExcelCustomers = async () => {
+    if (!excelFile) {
+      alert("Seleccioná un archivo Excel primero.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "¿Importar clientes desde Excel al CRM? Esto NO toca MikroTik."
+    );
+
+    if (!ok) return;
+
+    try {
+      setImportingExcel(true);
+      setExcelImportResult(null);
+
+      const formData = new FormData();
+      formData.append("file", excelFile);
+
+      const res = await axios.post(`${API}/customers/import-excel`, formData, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+
+      setExcelImportResult(res.data);
+
+      alert(
+        `Importación finalizada.\nImportados: ${
+          res.data.imported || 0
+        }\nYa existentes: ${res.data.skipped_existing || 0}\nFilas vacías: ${
+          res.data.skipped_empty || 0
+        }`
+      );
+
+      setExcelFile(null);
+
+      await loadData();
+    } catch (error) {
+      console.error("Error importando Excel:", error);
+
+      alert(
+        error.response?.data?.detail || "No se pudo importar el archivo Excel."
+      );
+    } finally {
+      setImportingExcel(false);
+    }
   };
 
   useEffect(() => {
@@ -113,6 +166,7 @@ function CustomerManager() {
 
   const getPlanName = (planId) => {
     const plan = plans.find((p) => p.id === planId);
+
     if (!plan) return "-";
 
     return `${plan.name || "Plan"}${
@@ -125,17 +179,22 @@ function CustomerManager() {
   };
 
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const loadAvailableIps = async (routerId, keepIp = "") => {
     if (!routerId) {
       setAvailableIps([]);
+
       setForm((prev) => ({
         ...prev,
         router_id: "",
         remote_address: keepIp || "",
       }));
+
       return;
     }
 
@@ -146,7 +205,9 @@ function CustomerManager() {
       );
 
       const ips = res.data.ips || [];
-      const finalIps = keepIp ? [keepIp, ...ips.filter((ip) => ip !== keepIp)] : ips;
+      const finalIps = keepIp
+        ? [keepIp, ...ips.filter((ip) => ip !== keepIp)]
+        : ips;
 
       setAvailableIps(finalIps);
 
@@ -184,7 +245,10 @@ function CustomerManager() {
     setMode("edit");
 
     if (customer.router_id) {
-      await loadAvailableIps(String(customer.router_id), customer.remote_address || "");
+      await loadAvailableIps(
+        String(customer.router_id),
+        customer.remote_address || ""
+      );
     } else {
       setAvailableIps(customer.remote_address ? [customer.remote_address] : []);
     }
@@ -220,17 +284,21 @@ function CustomerManager() {
     if (!ok) return;
 
     await axios.delete(`${API}/customers/${customerId}`, getAuthHeaders());
+
     setSelected((prev) => prev.filter((id) => id !== customerId));
+
     await loadData();
   };
 
   const suspendCustomer = async (customerId) => {
     await axios.put(`${API}/customers/${customerId}/suspend`, {}, getAuthHeaders());
+
     await loadData();
   };
 
   const activateCustomer = async (customerId) => {
     await axios.put(`${API}/customers/${customerId}/activate`, {}, getAuthHeaders());
+
     await loadData();
   };
 
@@ -252,12 +320,20 @@ function CustomerManager() {
   };
 
   const executeBulkAction = async () => {
-    if (!bulkAction) return alert("Seleccioná una acción.");
-    if (selected.length === 0) return alert("Seleccioná al menos un cliente.");
+    if (!bulkAction) {
+      alert("Seleccioná una acción.");
+      return;
+    }
+
+    if (selected.length === 0) {
+      alert("Seleccioná al menos un cliente.");
+      return;
+    }
 
     const ok = window.confirm(
       `¿Ejecutar "${bulkAction}" sobre ${selected.length} clientes?`
     );
+
     if (!ok) return;
 
     for (const id of selected) {
@@ -276,6 +352,7 @@ function CustomerManager() {
 
     setSelected([]);
     setBulkAction("");
+
     await loadData();
   };
 
@@ -289,17 +366,36 @@ function CustomerManager() {
                 <span className="text-green-400">👥</span>
                 Lista de Clientes
               </h1>
-              <p className="text-slate-400 mt-2">
+
+              <p className="text-slate-500 mt-2">
                 Gestión completa de clientes PPPoE
               </p>
             </div>
 
-            <button
-              onClick={newCustomer}
-              className="rounded-xl bg-green-500 px-5 py-3 font-bold text-slate-950 hover:bg-green-400"
-            >
-              + Agregar Cliente
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="file"
+                accept=".xlsx,.xlsm"
+                onChange={(e) => setExcelFile(e.target.files?.[0] || null)}
+                className="input-dark max-w-xs"
+              />
+
+              <button
+                type="button"
+                onClick={importExcelCustomers}
+                disabled={importingExcel}
+                className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+              >
+                {importingExcel ? "Importando..." : "Importar Excel"}
+              </button>
+
+              <button
+                onClick={newCustomer}
+                className="rounded-xl bg-green-500 px-5 py-3 font-bold text-white hover:bg-green-400"
+              >
+                + Agregar Cliente
+              </button>
+            </div>
           </div>
 
           <Panel>
@@ -312,6 +408,7 @@ function CustomerManager() {
               }}
             >
               <option value="">Seleccione una Zona</option>
+
               {zones.map((z) => (
                 <option key={z} value={z}>
                   {z}
@@ -319,6 +416,48 @@ function CustomerManager() {
               ))}
             </select>
           </Panel>
+
+          {excelImportResult && (
+            <Panel title="Resultado importación Excel">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-slate-500 text-sm">Importados</p>
+
+                  <h3 className="text-2xl font-bold text-green-600">
+                    {excelImportResult.imported || 0}
+                  </h3>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-slate-500 text-sm">Ya existentes</p>
+
+                  <h3 className="text-2xl font-bold text-blue-600">
+                    {excelImportResult.skipped_existing || 0}
+                  </h3>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-slate-500 text-sm">Filas vacías</p>
+
+                  <h3 className="text-2xl font-bold text-orange-500">
+                    {excelImportResult.skipped_empty || 0}
+                  </h3>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-slate-500 text-sm">Errores</p>
+
+                  <h3 className="text-2xl font-bold text-red-600">
+                    {excelImportResult.errors?.length || 0}
+                  </h3>
+                </div>
+              </div>
+
+              <pre className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs overflow-auto">
+                {JSON.stringify(excelImportResult, null, 2)}
+              </pre>
+            </Panel>
+          )}
 
           <Panel>
             <div className="flex flex-wrap items-center gap-3">
@@ -338,12 +477,12 @@ function CustomerManager() {
               <button
                 type="button"
                 onClick={executeBulkAction}
-                className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500"
+                className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500"
               >
                 ▶ Ejecutar
               </button>
 
-              <span className="text-slate-300">
+              <span className="text-slate-500">
                 {selected.length} seleccionados/as
               </span>
             </div>
@@ -357,7 +496,7 @@ function CustomerManager() {
               <IconButton>📊</IconButton>
               <ButtonGreen>▦ Tabla</ButtonGreen>
 
-              <span className="ml-2 text-slate-300">Botones de Acción:</span>
+              <span className="ml-2 text-slate-500">Botones de Acción:</span>
 
               <SmallAction color="green">?</SmallAction>
               <SmallAction color="blue">↔</SmallAction>
@@ -371,11 +510,11 @@ function CustomerManager() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button className="rounded-lg bg-blue-600 px-4 py-2 font-bold hover:bg-blue-500">
+              <button className="rounded-lg bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500">
                 🔧 Herramientas
               </button>
 
-              <button className="rounded-lg bg-blue-600 px-4 py-2 font-bold hover:bg-blue-500">
+              <button className="rounded-lg bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500">
                 ✨ IA
               </button>
             </div>
@@ -383,7 +522,7 @@ function CustomerManager() {
 
           <Panel>
             <div className="flex justify-end mb-4">
-              <label className="flex items-center gap-2 font-bold">
+              <label className="flex items-center gap-2 font-bold text-slate-700">
                 Buscar:
                 <input
                   className="input-dark w-64"
@@ -397,21 +536,25 @@ function CustomerManager() {
               </label>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-white/10">
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-sm">
-                <thead className="bg-slate-950/70">
-                  <tr className="border-b border-white/10 text-left text-slate-300">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-slate-600">
                     <th className="p-3 w-10"></th>
+
                     <th className="p-3 w-10">
                       <input
                         type="checkbox"
                         checked={
                           paginatedCustomers.length > 0 &&
-                          paginatedCustomers.every((c) => selected.includes(c.id))
+                          paginatedCustomers.every((c) =>
+                            selected.includes(c.id)
+                          )
                         }
                         onChange={toggleAll}
                       />
                     </th>
+
                     <th className="p-3">ID</th>
                     <th className="p-3">Usuario</th>
                     <th className="p-3">IP</th>
@@ -426,13 +569,13 @@ function CustomerManager() {
                 <tbody>
                   {paginatedCustomers.map((c) => (
                     <Fragment key={c.id}>
-                      <tr className="border-b border-white/5 hover:bg-slate-800/60">
+                      <tr className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="p-3">
                           <button
                             onClick={() =>
                               setExpandedId(expandedId === c.id ? null : c.id)
                             }
-                            className="h-7 w-7 rounded-full bg-blue-600 font-bold hover:bg-blue-500"
+                            className="h-7 w-7 rounded-full bg-blue-600 font-bold text-white hover:bg-blue-500"
                           >
                             {expandedId === c.id ? "-" : "+"}
                           </button>
@@ -448,7 +591,7 @@ function CustomerManager() {
 
                         <td className="p-3">{c.id}</td>
 
-                        <td className="p-3 font-medium text-cyan-300">
+                        <td className="p-3 font-medium text-blue-600">
                           {c.pppoe_username || c.email || "-"}
                         </td>
 
@@ -516,38 +659,86 @@ function CustomerManager() {
                       </tr>
 
                       {expandedId === c.id && (
-                        <tr className="bg-slate-950/70 border-b border-white/10">
+                        <tr className="bg-slate-50 border-b border-slate-200">
                           <td colSpan="10" className="p-5">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                              <DetailBox title="Datos del Cliente" color="text-cyan-400">
-                                <p><b>Nombre:</b> {c.name} {c.last_name || ""}</p>
-                                <p><b>DNI/CUIT:</b> {c.dni || "-"}</p>
-                                <p><b>Email:</b> {c.email || "-"}</p>
-                                <p><b>Teléfono:</b> {c.phone || "-"}</p>
-                                <p><b>Dirección:</b> {c.address || "-"}</p>
-                                <p><b>Localidad:</b> {c.locality || "-"}</p>
+                              <DetailBox
+                                title="Datos del Cliente"
+                                color="text-blue-600"
+                              >
+                                <p>
+                                  <b>Nombre:</b> {c.name} {c.last_name || ""}
+                                </p>
+                                <p>
+                                  <b>DNI/CUIT:</b> {c.dni || "-"}
+                                </p>
+                                <p>
+                                  <b>Email:</b> {c.email || "-"}
+                                </p>
+                                <p>
+                                  <b>Teléfono:</b> {c.phone || "-"}
+                                </p>
+                                <p>
+                                  <b>Dirección:</b> {c.address || "-"}
+                                </p>
+                                <p>
+                                  <b>Localidad:</b> {c.locality || "-"}
+                                </p>
                               </DetailBox>
 
-                              <DetailBox title="Conexión PPPoE" color="text-green-400">
-                                <p><b>Usuario:</b> {c.pppoe_username || "-"}</p>
-                                <p><b>Password:</b> {c.pppoe_password || "-"}</p>
-                                <p><b>Remote IP:</b> {c.remote_address || "-"}</p>
-                                <p><b>Local IP:</b> {c.local_address || "-"}</p>
-                                <p><b>MAC CPE:</b> {c.mac_cpe || "-"}</p>
-                                <p><b>Zona:</b> {c.zone || "-"}</p>
+                              <DetailBox
+                                title="Conexión PPPoE"
+                                color="text-green-600"
+                              >
+                                <p>
+                                  <b>Usuario:</b> {c.pppoe_username || "-"}
+                                </p>
+                                <p>
+                                  <b>Password:</b> {c.pppoe_password || "-"}
+                                </p>
+                                <p>
+                                  <b>Remote IP:</b> {c.remote_address || "-"}
+                                </p>
+                                <p>
+                                  <b>Local IP:</b> {c.local_address || "-"}
+                                </p>
+                                <p>
+                                  <b>MAC CPE:</b> {c.mac_cpe || "-"}
+                                </p>
+                                <p>
+                                  <b>Zona:</b> {c.zone || "-"}
+                                </p>
                               </DetailBox>
 
-                              <DetailBox title="Servicio / Facturación" color="text-yellow-400">
-                                <p><b>Plan:</b> {getPlanName(c.plan_id)}</p>
-                                <p><b>Estado:</b> {c.status || "-"}</p>
-                                <p><b>Tipo factura:</b> {c.billing_type || "-"}</p>
-                                <p><b>Día factura:</b> {c.invoice_day || "-"}</p>
-                                <p><b>Día pago:</b> {c.payment_day || "-"}</p>
-                                <p><b>Día corte:</b> {c.cut_day || "-"}</p>
+                              <DetailBox
+                                title="Servicio / Facturación"
+                                color="text-orange-500"
+                              >
+                                <p>
+                                  <b>Plan:</b> {getPlanName(c.plan_id)}
+                                </p>
+                                <p>
+                                  <b>Estado:</b> {c.status || "-"}
+                                </p>
+                                <p>
+                                  <b>Tipo factura:</b> {c.billing_type || "-"}
+                                </p>
+                                <p>
+                                  <b>Día factura:</b> {c.invoice_day || "-"}
+                                </p>
+                                <p>
+                                  <b>Día pago:</b> {c.payment_day || "-"}
+                                </p>
+                                <p>
+                                  <b>Día corte:</b> {c.cut_day || "-"}
+                                </p>
                               </DetailBox>
 
-                              <div className="md:col-span-3 rounded-xl bg-slate-900 border border-white/10 p-4">
-                                <h4 className="font-bold text-purple-400 mb-3">Notas</h4>
+                              <div className="md:col-span-3 rounded-xl bg-white border border-slate-200 p-4">
+                                <h4 className="font-bold text-purple-600 mb-3">
+                                  Notas
+                                </h4>
+
                                 <p>{c.notes || "Sin notas"}</p>
                               </div>
                             </div>
@@ -569,19 +760,27 @@ function CustomerManager() {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-4 mt-5">
-              <p className="text-slate-300">
-                Mostrando registros del {filteredCustomers.length === 0 ? 0 : start + 1} al{" "}
+              <p className="text-slate-500">
+                Mostrando registros del{" "}
+                {filteredCustomers.length === 0 ? 0 : start + 1} al{" "}
                 {Math.min(start + perPage, filteredCustomers.length)} de un total
                 de {filteredCustomers.length} registros
               </p>
 
               <div className="flex items-center gap-1">
-                <PageButton disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                <PageButton
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
                   Anterior
                 </PageButton>
 
                 {[...Array(Math.min(totalPages, 5))].map((_, i) => (
-                  <PageButton key={i + 1} active={page === i + 1} onClick={() => setPage(i + 1)}>
+                  <PageButton
+                    key={i + 1}
+                    active={page === i + 1}
+                    onClick={() => setPage(i + 1)}
+                  >
                     {i + 1}
                   </PageButton>
                 ))}
@@ -589,13 +788,20 @@ function CustomerManager() {
                 {totalPages > 5 && (
                   <>
                     <span className="px-3 text-slate-400">...</span>
-                    <PageButton active={page === totalPages} onClick={() => setPage(totalPages)}>
+
+                    <PageButton
+                      active={page === totalPages}
+                      onClick={() => setPage(totalPages)}
+                    >
                       {totalPages}
                     </PageButton>
                   </>
                 )}
 
-                <PageButton disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                <PageButton
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
                   Siguiente
                 </PageButton>
               </div>
@@ -611,14 +817,15 @@ function CustomerManager() {
               <h1 className="text-4xl font-bold">
                 {mode === "edit" ? "Editar Cliente" : "Agregar Cliente"}
               </h1>
-              <p className="text-slate-400 mt-2">
+
+              <p className="text-slate-500 mt-2">
                 Alta completa del cliente y conexión PPPoE
               </p>
             </div>
 
             <button
               onClick={() => setMode("list")}
-              className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600"
+              className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-900 hover:bg-slate-300"
             >
               Volver
             </button>
@@ -626,25 +833,61 @@ function CustomerManager() {
 
           <form onSubmit={saveCustomer}>
             <div className="flex flex-wrap gap-2 mb-6">
-              <TabButton label="Datos de Conexión" active={tab === "connection"} onClick={() => setTab("connection")} />
-              <TabButton label="Datos del Cliente" active={tab === "client"} onClick={() => setTab("client")} />
-              <TabButton label="Configuración Avanzada" active={tab === "advanced"} onClick={() => setTab("advanced")} />
-              <TabButton label="Facturación" active={tab === "billing"} onClick={() => setTab("billing")} />
+              <TabButton
+                label="Datos de Conexión"
+                active={tab === "connection"}
+                onClick={() => setTab("connection")}
+              />
+
+              <TabButton
+                label="Datos del Cliente"
+                active={tab === "client"}
+                onClick={() => setTab("client")}
+              />
+
+              <TabButton
+                label="Configuración Avanzada"
+                active={tab === "advanced"}
+                onClick={() => setTab("advanced")}
+              />
+
+              <TabButton
+                label="Facturación"
+                active={tab === "billing"}
+                onClick={() => setTab("billing")}
+              />
             </div>
 
             {tab === "connection" && (
               <Panel title="Datos de Conexión">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="Nombre Secret PPPoE" value={form.pppoe_username} onChange={(e) => handleChange("pppoe_username", e.target.value)} />
-                  <Input label="Contraseña PPPoE" value={form.pppoe_password} onChange={(e) => handleChange("pppoe_password", e.target.value)} />
+                  <Input
+                    label="Nombre Secret PPPoE"
+                    value={form.pppoe_username}
+                    onChange={(e) =>
+                      handleChange("pppoe_username", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    label="Contraseña PPPoE"
+                    value={form.pppoe_password}
+                    onChange={(e) =>
+                      handleChange("pppoe_password", e.target.value)
+                    }
+                  />
 
                   <Select
                     label={`Remote Address PPPoE (${availableIps.length} IPs libres)`}
                     value={form.remote_address}
-                    onChange={(e) => handleChange("remote_address", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("remote_address", e.target.value)
+                    }
                   >
                     <option value="">
-                      {form.router_id ? "Seleccionar IP disponible" : "Primero seleccioná un router"}
+                      {form.router_id
+                        ? "Seleccionar IP disponible"
+                        : "Primero seleccioná un router"}
                     </option>
 
                     {availableIps.map((ip) => (
@@ -654,12 +897,36 @@ function CustomerManager() {
                     ))}
                   </Select>
 
-                  <Input label="Local Address PPPoE" value={form.local_address} onChange={(e) => handleChange("local_address", e.target.value)} />
-                  <Input label="MAC CPE" value={form.mac_cpe} onChange={(e) => handleChange("mac_cpe", e.target.value)} />
-                  <Input label="Coordenadas" placeholder="-34.60,-58.38" value={form.coordinates} onChange={(e) => handleChange("coordinates", e.target.value)} />
+                  <Input
+                    label="Local Address PPPoE"
+                    value={form.local_address}
+                    onChange={(e) =>
+                      handleChange("local_address", e.target.value)
+                    }
+                  />
 
-                  <Select label="Router" value={form.router_id} onChange={(e) => loadAvailableIps(e.target.value)}>
+                  <Input
+                    label="MAC CPE"
+                    value={form.mac_cpe}
+                    onChange={(e) => handleChange("mac_cpe", e.target.value)}
+                  />
+
+                  <Input
+                    label="Coordenadas"
+                    placeholder="-34.60,-58.38"
+                    value={form.coordinates}
+                    onChange={(e) =>
+                      handleChange("coordinates", e.target.value)
+                    }
+                  />
+
+                  <Select
+                    label="Router"
+                    value={form.router_id}
+                    onChange={(e) => loadAvailableIps(e.target.value)}
+                  >
                     <option value="">Seleccionar router</option>
+
                     {routers.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.name} - {r.host}
@@ -667,10 +934,19 @@ function CustomerManager() {
                     ))}
                   </Select>
 
-                  <Input label="Zona" value={form.zone} onChange={(e) => handleChange("zone", e.target.value)} />
+                  <Input
+                    label="Zona"
+                    value={form.zone}
+                    onChange={(e) => handleChange("zone", e.target.value)}
+                  />
 
-                  <Select label="Plan Internet" value={form.plan_id} onChange={(e) => handleChange("plan_id", e.target.value)}>
+                  <Select
+                    label="Plan Internet"
+                    value={form.plan_id}
+                    onChange={(e) => handleChange("plan_id", e.target.value)}
+                  >
                     <option value="">Seleccionar plan</option>
+
                     {plans.map((p) => (
                       <option key={p.id} value={p.id}>
                         {getPlanName(p.id)} - ${p.price}
@@ -684,18 +960,77 @@ function CustomerManager() {
             {tab === "client" && (
               <Panel title="Datos del Cliente">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="Nombre" value={form.name} onChange={(e) => handleChange("name", e.target.value)} />
-                  <Input label="Apellido" value={form.last_name} onChange={(e) => handleChange("last_name", e.target.value)} />
-                  <Input label="DNI / CUIT" value={form.dni} onChange={(e) => handleChange("dni", e.target.value)} />
-                  <Input label="Email" value={form.email} onChange={(e) => handleChange("email", e.target.value)} />
-                  <Input label="ID Externo" value={form.external_id} onChange={(e) => handleChange("external_id", e.target.value)} />
-                  <Input label="Dirección" value={form.address} onChange={(e) => handleChange("address", e.target.value)} />
-                  <Input label="Localidad" value={form.locality} onChange={(e) => handleChange("locality", e.target.value)} />
-                  <Input label="Ciudad" value={form.city} onChange={(e) => handleChange("city", e.target.value)} />
-                  <Input label="Código Postal" value={form.postal_code} onChange={(e) => handleChange("postal_code", e.target.value)} />
-                  <Input label="Teléfono" value={form.phone} onChange={(e) => handleChange("phone", e.target.value)} />
+                  <Input
+                    label="Nombre"
+                    value={form.name}
+                    onChange={(e) => handleChange("name", e.target.value)}
+                  />
 
-                  <Select label="Forma de contratación" value={form.contract_type} onChange={(e) => handleChange("contract_type", e.target.value)}>
+                  <Input
+                    label="Apellido"
+                    value={form.last_name}
+                    onChange={(e) => handleChange("last_name", e.target.value)}
+                  />
+
+                  <Input
+                    label="DNI / CUIT"
+                    value={form.dni}
+                    onChange={(e) => handleChange("dni", e.target.value)}
+                  />
+
+                  <Input
+                    label="Email"
+                    value={form.email}
+                    onChange={(e) => handleChange("email", e.target.value)}
+                  />
+
+                  <Input
+                    label="ID Externo"
+                    value={form.external_id}
+                    onChange={(e) =>
+                      handleChange("external_id", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    label="Dirección"
+                    value={form.address}
+                    onChange={(e) => handleChange("address", e.target.value)}
+                  />
+
+                  <Input
+                    label="Localidad"
+                    value={form.locality}
+                    onChange={(e) => handleChange("locality", e.target.value)}
+                  />
+
+                  <Input
+                    label="Ciudad"
+                    value={form.city}
+                    onChange={(e) => handleChange("city", e.target.value)}
+                  />
+
+                  <Input
+                    label="Código Postal"
+                    value={form.postal_code}
+                    onChange={(e) =>
+                      handleChange("postal_code", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    label="Teléfono"
+                    value={form.phone}
+                    onChange={(e) => handleChange("phone", e.target.value)}
+                  />
+
+                  <Select
+                    label="Forma de contratación"
+                    value={form.contract_type}
+                    onChange={(e) =>
+                      handleChange("contract_type", e.target.value)
+                    }
+                  >
                     <option value="internet">Internet</option>
                     <option value="internet_tv">Internet + TV</option>
                     <option value="empresa">Empresa</option>
@@ -708,7 +1043,11 @@ function CustomerManager() {
             {tab === "advanced" && (
               <Panel title="Configuración Avanzada">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Select label="Estado" value={form.status} onChange={(e) => handleChange("status", e.target.value)}>
+                  <Select
+                    label="Estado"
+                    value={form.status}
+                    onChange={(e) => handleChange("status", e.target.value)}
+                  >
                     <option value="active">Activo</option>
                     <option value="suspended">Suspendido</option>
                     <option value="inactive">Inactivo</option>
@@ -727,14 +1066,38 @@ function CustomerManager() {
             {tab === "billing" && (
               <Panel title="Facturación">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Select label="Tipo de facturación" value={form.billing_type} onChange={(e) => handleChange("billing_type", e.target.value)}>
+                  <Select
+                    label="Tipo de facturación"
+                    value={form.billing_type}
+                    onChange={(e) =>
+                      handleChange("billing_type", e.target.value)
+                    }
+                  >
                     <option value="prepaid">Prepago</option>
                     <option value="postpaid">Postpago</option>
                   </Select>
 
-                  <Input label="Día de factura" value={form.invoice_day} onChange={(e) => handleChange("invoice_day", e.target.value)} />
-                  <Input label="Día de pago" value={form.payment_day} onChange={(e) => handleChange("payment_day", e.target.value)} />
-                  <Input label="Día de corte" value={form.cut_day} onChange={(e) => handleChange("cut_day", e.target.value)} />
+                  <Input
+                    label="Día de factura"
+                    value={form.invoice_day}
+                    onChange={(e) =>
+                      handleChange("invoice_day", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    label="Día de pago"
+                    value={form.payment_day}
+                    onChange={(e) =>
+                      handleChange("payment_day", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    label="Día de corte"
+                    value={form.cut_day}
+                    onChange={(e) => handleChange("cut_day", e.target.value)}
+                  />
                 </div>
               </Panel>
             )}
@@ -743,12 +1106,12 @@ function CustomerManager() {
               <button
                 type="button"
                 onClick={() => setMode("list")}
-                className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600"
+                className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-900 hover:bg-slate-300"
               >
                 Cancelar
               </button>
 
-              <button className="rounded-xl bg-green-500 px-5 py-3 font-bold text-slate-950 hover:bg-green-400">
+              <button className="rounded-xl bg-green-500 px-5 py-3 font-bold text-white hover:bg-green-400">
                 {mode === "edit" ? "Guardar cambios" : "Guardar cliente"}
               </button>
             </div>
@@ -761,8 +1124,8 @@ function CustomerManager() {
 
 function Panel({ title, children }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-900/90 p-5 mb-5 shadow-xl">
-      {title && <h3 className="mb-4 text-xl font-bold">{title}</h3>}
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 mb-5 shadow-sm">
+      {title && <h3 className="mb-4 text-xl font-bold text-slate-950">{title}</h3>}
       {children}
     </div>
   );
@@ -770,9 +1133,9 @@ function Panel({ title, children }) {
 
 function DetailBox({ title, color, children }) {
   return (
-    <div className="rounded-xl bg-slate-900 border border-white/10 p-4">
+    <div className="rounded-xl bg-white border border-slate-200 p-4">
       <h4 className={`font-bold ${color} mb-3`}>{title}</h4>
-      <div className="space-y-1 text-slate-300">{children}</div>
+      <div className="space-y-1 text-slate-700">{children}</div>
     </div>
   );
 }
@@ -780,7 +1143,7 @@ function DetailBox({ title, color, children }) {
 function Input({ label, ...props }) {
   return (
     <div>
-      {label && <label className="text-sm text-slate-400">{label}</label>}
+      {label && <label className="text-sm text-slate-500">{label}</label>}
       <input {...props} className="input-dark mt-2" />
     </div>
   );
@@ -789,7 +1152,7 @@ function Input({ label, ...props }) {
 function Select({ label, children, ...props }) {
   return (
     <div>
-      {label && <label className="text-sm text-slate-400">{label}</label>}
+      {label && <label className="text-sm text-slate-500">{label}</label>}
       <select {...props} className="input-dark mt-2">
         {children}
       </select>
@@ -804,8 +1167,8 @@ function TabButton({ label, active, onClick }) {
       onClick={onClick}
       className={`rounded-xl px-4 py-3 font-bold transition ${
         active
-          ? "bg-cyan-500 text-slate-950"
-          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+          ? "bg-blue-600 text-white"
+          : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
       }`}
     >
       {label}
@@ -815,7 +1178,7 @@ function TabButton({ label, active, onClick }) {
 
 function ButtonGreen({ children }) {
   return (
-    <button className="rounded-lg bg-green-600 px-4 py-2 font-bold hover:bg-green-500">
+    <button className="rounded-lg bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500">
       {children}
     </button>
   );
@@ -823,7 +1186,7 @@ function ButtonGreen({ children }) {
 
 function IconButton({ children }) {
   return (
-    <button className="rounded-lg bg-green-600 px-3 py-2 font-bold hover:bg-green-500">
+    <button className="rounded-lg bg-green-600 px-3 py-2 font-bold text-white hover:bg-green-500">
       {children}
     </button>
   );
@@ -838,7 +1201,7 @@ function SmallAction({ children, color }) {
   };
 
   return (
-    <button className={`rounded-lg px-3 py-2 font-bold ${styles[color]}`}>
+    <button className={`rounded-lg px-3 py-2 font-bold text-white ${styles[color]}`}>
       {children}
     </button>
   );
@@ -849,12 +1212,12 @@ function PageButton({ children, active, disabled, onClick }) {
     <button
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-lg border border-white/10 px-4 py-2 ${
+      className={`rounded-lg border border-slate-200 px-4 py-2 ${
         active
           ? "bg-blue-600 text-white"
           : disabled
-          ? "bg-slate-900 text-slate-600"
-          : "bg-slate-950 text-slate-300 hover:bg-slate-800"
+          ? "bg-slate-100 text-slate-400"
+          : "bg-white text-slate-700 hover:bg-slate-100"
       }`}
     >
       {children}
