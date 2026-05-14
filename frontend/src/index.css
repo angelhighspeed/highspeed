@@ -1,0 +1,267 @@
+@import "tailwindcss";
+
+/* BASE GENERAL */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* INPUTS BASE */
+.input-dark {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.input-dark:focus {
+  border-color: #2563eb;
+}
+
+.input-dark::placeholder {
+  color: #94a3b8;
+}
+
+/* BOTONES BASE */
+.btn-primary {
+  border-radius: 12px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 12px 18px;
+  font-weight: 700;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-success {
+  border-radius: 12px;
+  background: #22c55e;
+  color: #ffffff;
+  padding: 10px 16px;
+  font-weight: 700;
+}
+
+.btn-success:hover {
+  background: #16a34a;
+}
+
+/* MODO DÍA GLOBAL */
+.light-app {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.light-app main {
+  background: #f8fafc !important;
+}
+
+.light-app aside {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* LOGO */
+.light-app aside img {
+  max-width: 240px !important;
+  max-height: 110px !important;
+  object-fit: contain !important;
+}
+
+/* INPUTS EN MODO DÍA */
+.light-app .input-dark {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #dbe3ef !important;
+  border-radius: 12px !important;
+}
+
+.light-app .input-dark::placeholder {
+  color: #94a3b8 !important;
+}
+
+.light-app select.input-dark,
+.light-app textarea.input-dark,
+.light-app input.input-dark {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* CONVERTIR FONDOS OSCUROS A CLAROS */
+.light-app .bg-slate-950,
+.light-app .bg-slate-950\/70,
+.light-app .bg-slate-950\/80,
+.light-app .bg-slate-950\/90,
+.light-app .bg-slate-900,
+.light-app .bg-slate-900\/90,
+.light-app .bg-slate-800,
+.light-app .bg-slate-800\/60 {
+  background-color: #ffffff !important;
+}
+
+.light-app .bg-slate-700,
+.light-app .bg-slate-600 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* BORDES */
+.light-app .border-white\/5,
+.light-app .border-white\/10,
+.light-app .border-white\/20 {
+  border-color: #e2e8f0 !important;
+}
+
+/* TEXTOS */
+.light-app .text-white {
+  color: #0f172a !important;
+}
+
+.light-app .text-slate-300 {
+  color: #334155 !important;
+}
+
+.light-app .text-slate-400 {
+  color: #64748b !important;
+}
+
+.light-app .text-slate-500 {
+  color: #64748b !important;
+}
+
+.light-app .text-slate-600 {
+  color: #475569 !important;
+}
+
+.light-app .text-slate-700 {
+  color: #334155 !important;
+}
+
+.light-app .text-slate-800 {
+  color: #1e293b !important;
+}
+
+.light-app .text-slate-900,
+.light-app .text-slate-950 {
+  color: #0f172a !important;
+}
+
+/* TABLAS */
+.light-app table {
+  color: #0f172a !important;
+}
+
+.light-app thead,
+.light-app .bg-slate-950\/70 {
+  background: #f8fafc !important;
+}
+
+.light-app tbody tr {
+  background: #ffffff !important;
+}
+
+.light-app tbody tr:hover {
+  background: #f1f5f9 !important;
+}
+
+.light-app th {
+  color: #475569 !important;
+}
+
+.light-app td {
+  color: #0f172a !important;
+}
+
+/* FILAS EXPANDIDAS */
+.light-app tr.bg-slate-950\/70 {
+  background: #f8fafc !important;
+}
+
+/* BLOQUES DE DETALLE */
+.light-app .rounded-xl.bg-slate-900,
+.light-app .rounded-2xl.bg-slate-900,
+.light-app .rounded-2xl.bg-slate-900\/90 {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* BLOQUES DE CÓDIGO / RESULTADOS */
+.light-app pre {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+/* DROPDOWNS */
+.light-app select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+/* BOTONES CON CONTRASTE */
+.light-app .bg-blue-600,
+.light-app .bg-cyan-500,
+.light-app .bg-green-500,
+.light-app .bg-green-600,
+.light-app .bg-red-600,
+.light-app .bg-orange-500,
+.light-app .bg-purple-600 {
+  color: #ffffff !important;
+}
+
+.light-app .bg-yellow-500 {
+  color: #0f172a !important;
+}
+
+/* SOMBRAS */
+.light-app .shadow-xl {
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+.light-app .shadow-lg {
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08) !important;
+}
+
+.light-app .shadow-sm {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* SCROLL */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
