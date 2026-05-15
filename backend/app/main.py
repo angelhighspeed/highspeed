@@ -20,6 +20,7 @@ from app.routers.customer_router import router as customer_router
 from app.routers.plan_router import router as plan_router
 from app.routers.invoice_router import router as invoice_router
 from app.routers.invoice_export_router import router as invoice_export_router
+from app.routers.invoice_pdf_router import router as invoice_pdf_router
 from app.routers.ticket_router import router as ticket_router
 from app.routers.installation_router import router as installation_router
 from app.routers.router_router import router as router_router
@@ -61,6 +62,7 @@ app.include_router(customer_router)
 app.include_router(plan_router)
 app.include_router(invoice_router)
 app.include_router(invoice_export_router)
+app.include_router(invoice_pdf_router)
 app.include_router(auth_router)
 app.include_router(mikrotik_router)
 app.include_router(dashboard_router)

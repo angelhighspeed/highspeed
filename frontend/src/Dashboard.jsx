@@ -98,7 +98,6 @@ function Dashboard({ onLogout }) {
   const canManageInstallations = ["admin", "tecnico"].includes(role);
 
   const canViewMikrotik = role === "admin";
-
   const canViewStats = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewClientStatus = [
@@ -251,6 +250,45 @@ function Dashboard({ onLogout }) {
     } catch (error) {
       console.error("Error exportando facturas:", error);
       alert("No se pudo exportar el Excel.");
+    }
+  };
+
+  const exportInvoicesPdf = async (status = "") => {
+    try {
+      const url = status
+        ? `${API}/invoices/export-pdf?status=${status}`
+        : `${API}/invoices/export-pdf`;
+
+      const res = await axios.get(url, {
+        ...getAuthHeaders(),
+        responseType: "blob",
+      });
+
+      const blob = new Blob([res.data], {
+        type: "application/pdf",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+
+      if (status === "pending") {
+        link.download = "facturas_pendientes.pdf";
+      } else if (status === "paid") {
+        link.download = "facturas_pagadas.pdf";
+      } else {
+        link.download = "facturas.pdf";
+      }
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Error exportando PDF:", error);
+      alert("No se pudo exportar el PDF.");
     }
   };
 
@@ -644,266 +682,12 @@ function Dashboard({ onLogout }) {
       <main className="flex-1 p-8 overflow-y-auto">
         {section === "dashboard" && (
           <>
-            <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
-              <div>
-                <h1 className="text-4xl font-bold text-slate-950">
-                  Dashboard
-                </h1>
-
-                <p className="text-slate-500 mt-2">
-                  Resumen general de tu ISP
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  📅 {new Date().toLocaleDateString()}
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  🔔
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center">
-                    👤
-                  </div>
-
-                  <div>
-                    <p className="font-bold text-slate-800">Administrador</p>
-                    <p className="text-xs text-slate-500">HighSpeed ISP</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-              <MetricCard
-                icon="🧾"
-                title="Facturas"
-                value={stats?.invoices || 0}
-                subtitle="Este mes"
-                color="blue"
-              />
-
-              <MetricCard
-                icon="🎧"
-                title="Tickets"
-                value={tickets.length}
-                subtitle="Abiertos"
-                color="blue"
-              />
-
-              <MetricCard
-                icon="🕘"
-                title="Pendientes"
-                value={stats?.pending_invoices || 0}
-                subtitle="Por cobrar"
-                color="blue"
-              />
-
-              <MetricCard
-                icon="✅"
-                title="Pagadas"
-                value={stats?.paid_invoices || 0}
-                subtitle="Este mes"
-                color="green"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mt-6">
-              <MetricCard
-                icon="👥"
-                title="Clientes Totales"
-                value={clientStatus?.total_customers || 0}
-                subtitle="Registrados"
-                color="blue"
-              />
-
-              <MetricCard
-                icon="📶"
-                title="Clientes Online"
-                value={clientStatus?.online_customers || 0}
-                subtitle="Conectados"
-                color="green"
-              />
-
-              <MetricCard
-                icon="📡"
-                title="Clientes Offline"
-                value={clientStatus?.offline_customers || 0}
-                subtitle="Desconectados"
-                color="red"
-              />
-
-              <MetricCard
-                icon="👤"
-                title="Sesiones PPPoE"
-                value={clientStatus?.active_pppoe_sessions || 0}
-                subtitle="Sesiones activas"
-                color="blue"
-              />
-
-              <MetricCard
-                icon="🛜"
-                title="MikroTik"
-                value={clientStatus?.mikrotik_online ? "Online" : "Offline"}
-                subtitle="Estado actual"
-                color={clientStatus?.mikrotik_online ? "green" : "red"}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mt-6">
-              <LightPanel title="Estado de Facturas">
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart
-                    data={[
-                      {
-                        name: "Pendientes",
-                        total: stats?.pending_invoices || 0,
-                      },
-                      {
-                        name: "Pagadas",
-                        total: stats?.paid_invoices || 0,
-                      },
-                    ]}
-                  >
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
-                    <XAxis dataKey="name" stroke="#64748b" />
-                    <YAxis stroke="#64748b" />
-                    <Tooltip />
-
-                    <Bar
-                      dataKey="total"
-                      fill="#0ea5e9"
-                      radius={[10, 10, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </LightPanel>
-
-              <LightPanel title="Estado de Clientes">
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie
-                      data={[
-                        {
-                          name: "Online",
-                          value: clientStatus?.online_customers || 0,
-                        },
-                        {
-                          name: "Offline",
-                          value: clientStatus?.offline_customers || 0,
-                        },
-                        {
-                          name: "Suspendidos",
-                          value: clientStatus?.suspended_customers || 0,
-                        },
-                      ]}
-                      dataKey="value"
-                      innerRadius={65}
-                      outerRadius={95}
-                      label
-                    >
-                      <Cell fill="#22c55e" />
-                      <Cell fill="#94a3b8" />
-                      <Cell fill="#f97316" />
-                    </Pie>
-
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </LightPanel>
-
-              <LightPanel title="Actividad de la Red">
-                <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={networkData}>
-                    <defs>
-                      <linearGradient
-                        id="networkGradient"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#0ea5e9"
-                          stopOpacity={0.35}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="#0ea5e9"
-                          stopOpacity={0.02}
-                        />
-                      </linearGradient>
-                    </defs>
-
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
-                    <XAxis dataKey="name" stroke="#64748b" />
-                    <YAxis stroke="#64748b" />
-                    <Tooltip />
-
-                    <Area
-                      type="monotone"
-                      dataKey="sesiones"
-                      stroke="#0ea5e9"
-                      fill="url(#networkGradient)"
-                      strokeWidth={3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </LightPanel>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-6">
-              <FinanceCard
-                icon="$"
-                title="Total Cobrado"
-                value={`$${stats?.total_paid_amount || 0}`}
-                subtitle="Este mes"
-                color="blue"
-              />
-
-              <FinanceCard
-                icon="$"
-                title="Total Pendiente"
-                value={`$${stats?.total_pending_amount || 0}`}
-                subtitle="Por cobrar"
-                color="green"
-              />
-
-              <FinanceCard
-                icon="▥"
-                title="Ingreso Promedio"
-                value={`$${stats?.total_paid_amount || 0}`}
-                subtitle="Por factura"
-                color="purple"
-              />
-
-              <FinanceCard
-                icon="👥"
-                title="ARPU Promedio"
-                value={`$${
-                  clientStatus?.total_customers
-                    ? Math.round(
-                        (stats?.total_paid_amount || 0) /
-                          clientStatus.total_customers
-                      )
-                    : 0
-                }`}
-                subtitle="Por cliente"
-                color="orange"
-              />
-            </div>
-
-            {clientStatus?.mikrotik_error && (
-              <LightPanel title="Estado MikroTik">
-                <p className="text-red-500">
-                  Error MikroTik: {String(clientStatus.mikrotik_error)}
-                </p>
-              </LightPanel>
-            )}
+            <DashboardHome
+              stats={stats}
+              tickets={tickets}
+              clientStatus={clientStatus}
+              networkData={networkData}
+            />
           </>
         )}
 
@@ -1185,6 +969,30 @@ function Dashboard({ onLogout }) {
                   className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-500"
                 >
                   Exportar pagadas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesPdf("")}
+                  className="rounded-xl bg-slate-700 px-5 py-3 font-bold text-white hover:bg-slate-600"
+                >
+                  PDF todas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesPdf("pending")}
+                  className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-500"
+                >
+                  PDF pendientes
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesPdf("paid")}
+                  className="rounded-xl bg-green-700 px-5 py-3 font-bold text-white hover:bg-green-600"
+                >
+                  PDF pagadas
                 </button>
               </div>
 
@@ -1470,6 +1278,269 @@ function Dashboard({ onLogout }) {
         {section === "mikrotik" && canViewMikrotik && <RouterManager />}
       </main>
     </div>
+  );
+}
+
+function DashboardHome({ stats, tickets, clientStatus, networkData }) {
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-4xl font-bold text-slate-950">Dashboard</h1>
+
+          <p className="text-slate-500 mt-2">Resumen general de tu ISP</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            📅 {new Date().toLocaleDateString()}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            🔔
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center">
+              👤
+            </div>
+
+            <div>
+              <p className="font-bold text-slate-800">Administrador</p>
+              <p className="text-xs text-slate-500">HighSpeed ISP</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+        <MetricCard
+          icon="🧾"
+          title="Facturas"
+          value={stats?.invoices || 0}
+          subtitle="Este mes"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="🎧"
+          title="Tickets"
+          value={tickets.length}
+          subtitle="Abiertos"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="🕘"
+          title="Pendientes"
+          value={stats?.pending_invoices || 0}
+          subtitle="Por cobrar"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="✅"
+          title="Pagadas"
+          value={stats?.paid_invoices || 0}
+          subtitle="Este mes"
+          color="green"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mt-6">
+        <MetricCard
+          icon="👥"
+          title="Clientes Totales"
+          value={clientStatus?.total_customers || 0}
+          subtitle="Registrados"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="📶"
+          title="Clientes Online"
+          value={clientStatus?.online_customers || 0}
+          subtitle="Conectados"
+          color="green"
+        />
+
+        <MetricCard
+          icon="📡"
+          title="Clientes Offline"
+          value={clientStatus?.offline_customers || 0}
+          subtitle="Desconectados"
+          color="red"
+        />
+
+        <MetricCard
+          icon="👤"
+          title="Sesiones PPPoE"
+          value={clientStatus?.active_pppoe_sessions || 0}
+          subtitle="Sesiones activas"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="🛜"
+          title="MikroTik"
+          value={clientStatus?.mikrotik_online ? "Online" : "Offline"}
+          subtitle="Estado actual"
+          color={clientStatus?.mikrotik_online ? "green" : "red"}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mt-6">
+        <LightPanel title="Estado de Facturas">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart
+              data={[
+                {
+                  name: "Pendientes",
+                  total: stats?.pending_invoices || 0,
+                },
+                {
+                  name: "Pagadas",
+                  total: stats?.paid_invoices || 0,
+                },
+              ]}
+            >
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
+              <XAxis dataKey="name" stroke="#64748b" />
+              <YAxis stroke="#64748b" />
+              <Tooltip />
+
+              <Bar
+                dataKey="total"
+                fill="#0ea5e9"
+                radius={[10, 10, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </LightPanel>
+
+        <LightPanel title="Estado de Clientes">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={[
+                  {
+                    name: "Online",
+                    value: clientStatus?.online_customers || 0,
+                  },
+                  {
+                    name: "Offline",
+                    value: clientStatus?.offline_customers || 0,
+                  },
+                  {
+                    name: "Suspendidos",
+                    value: clientStatus?.suspended_customers || 0,
+                  },
+                ]}
+                dataKey="value"
+                innerRadius={65}
+                outerRadius={95}
+                label
+              >
+                <Cell fill="#22c55e" />
+                <Cell fill="#94a3b8" />
+                <Cell fill="#f97316" />
+              </Pie>
+
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </LightPanel>
+
+        <LightPanel title="Actividad de la Red">
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={networkData}>
+              <defs>
+                <linearGradient
+                  id="networkGradient"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="5%"
+                    stopColor="#0ea5e9"
+                    stopOpacity={0.35}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor="#0ea5e9"
+                    stopOpacity={0.02}
+                  />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
+              <XAxis dataKey="name" stroke="#64748b" />
+              <YAxis stroke="#64748b" />
+              <Tooltip />
+
+              <Area
+                type="monotone"
+                dataKey="sesiones"
+                stroke="#0ea5e9"
+                fill="url(#networkGradient)"
+                strokeWidth={3}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </LightPanel>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-6">
+        <FinanceCard
+          icon="$"
+          title="Total Cobrado"
+          value={`$${stats?.total_paid_amount || 0}`}
+          subtitle="Este mes"
+          color="blue"
+        />
+
+        <FinanceCard
+          icon="$"
+          title="Total Pendiente"
+          value={`$${stats?.total_pending_amount || 0}`}
+          subtitle="Por cobrar"
+          color="green"
+        />
+
+        <FinanceCard
+          icon="▥"
+          title="Ingreso Promedio"
+          value={`$${stats?.total_paid_amount || 0}`}
+          subtitle="Por factura"
+          color="purple"
+        />
+
+        <FinanceCard
+          icon="👥"
+          title="ARPU Promedio"
+          value={`$${
+            clientStatus?.total_customers
+              ? Math.round(
+                  (stats?.total_paid_amount || 0) /
+                    clientStatus.total_customers
+                )
+              : 0
+          }`}
+          subtitle="Por cliente"
+          color="orange"
+        />
+      </div>
+
+      {clientStatus?.mikrotik_error && (
+        <LightPanel title="Estado MikroTik">
+          <p className="text-red-500">
+            Error MikroTik: {String(clientStatus.mikrotik_error)}
+          </p>
+        </LightPanel>
+      )}
+    </>
   );
 }
 
