@@ -210,8 +210,40 @@ function Dashboard({ onLogout }) {
   };
 
   const payInvoice = async (id) => {
-    await axios.put(`${API}/invoices/${id}/pay`, {}, getAuthHeaders());
+    const paymentMethod = window.prompt(
+      "Método de pago: Efectivo, Transferencia, Mercado Pago u Otro",
+      "Efectivo"
+    );
+
+    if (paymentMethod === null) return;
+
+    const paymentNote = window.prompt("Observación del pago:", "");
+
+    if (paymentNote === null) return;
+
+    const ok = window.confirm(
+      `¿Marcar factura #${id} como pagada?
+
+Método: ${
+        paymentMethod || "Efectivo"
+      }
+Nota: ${paymentNote || "-"}`
+    );
+
+    if (!ok) return;
+
+    await axios.put(
+      `${API}/invoices/${id}/pay`,
+      {
+        payment_method: paymentMethod || "Efectivo",
+        payment_note: paymentNote || "",
+      },
+      getAuthHeaders()
+    );
+
     await loadData();
+
+    alert("Factura marcada como pagada.");
   };
 
   const exportInvoicesExcel = async (status = "") => {
@@ -1151,6 +1183,28 @@ function Dashboard({ onLogout }) {
                         {invoice.status === "paid" ? "Pagada" : "Pendiente"}
                       </span>
                     </p>
+
+
+                    {invoice.status === "paid" && (
+                      <>
+                        <p>
+                          <b>Fecha de pago:</b>{" "}
+                          {invoice.paid_at
+                            ? new Date(invoice.paid_at).toLocaleString()
+                            : "-"}
+                        </p>
+
+                        <p>
+                          <b>Método de pago:</b>{" "}
+                          {invoice.payment_method || "-"}
+                        </p>
+
+                        <p>
+                          <b>Observación:</b>{" "}
+                          {invoice.payment_note || "-"}
+                        </p>
+                      </>
+                    )}
 
                     {invoice.status === "pending" && canManageInvoices && (
                       <button
