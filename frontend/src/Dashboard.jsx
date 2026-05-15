@@ -98,6 +98,7 @@ function Dashboard({ onLogout }) {
   const canManageInstallations = ["admin", "tecnico"].includes(role);
 
   const canViewMikrotik = role === "admin";
+
   const canViewStats = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewClientStatus = [
@@ -137,15 +138,11 @@ function Dashboard({ onLogout }) {
       }
 
       if (canViewClientStatus) {
-        const res = await axios.get(
-          `${API}/dashboard/clients-status`,
-          headers
-        );
-
+        const res = await axios.get(`${API}/dashboard/clients-status`, headers);
         setClientStatus(res.data);
       }
     } catch (error) {
-      console.error(error);
+      console.error("Error cargando dashboard:", error);
 
       if (error.response?.status === 401) {
         localStorage.removeItem("token");
@@ -210,12 +207,51 @@ function Dashboard({ onLogout }) {
       due_date: "",
     });
 
-    loadData();
+    await loadData();
   };
 
   const payInvoice = async (id) => {
     await axios.put(`${API}/invoices/${id}/pay`, {}, getAuthHeaders());
-    loadData();
+    await loadData();
+  };
+
+  const exportInvoicesExcel = async (status = "") => {
+    try {
+      const url = status
+        ? `${API}/invoices/export-excel?status=${status}`
+        : `${API}/invoices/export-excel`;
+
+      const res = await axios.get(url, {
+        ...getAuthHeaders(),
+        responseType: "blob",
+      });
+
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+
+      if (status === "pending") {
+        link.download = "facturas_pendientes.xlsx";
+      } else if (status === "paid") {
+        link.download = "facturas_pagadas.xlsx";
+      } else {
+        link.download = "facturas.xlsx";
+      }
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Error exportando facturas:", error);
+      alert("No se pudo exportar el Excel.");
+    }
   };
 
   const generateMonthlyBilling = async () => {
@@ -378,12 +414,12 @@ function Dashboard({ onLogout }) {
       description: "",
     });
 
-    loadData();
+    await loadData();
   };
 
   const closeTicket = async (id) => {
     await axios.put(`${API}/tickets/${id}/close`, {}, getAuthHeaders());
-    loadData();
+    await loadData();
   };
 
   const createInstallation = async (e) => {
@@ -411,7 +447,7 @@ function Dashboard({ onLogout }) {
       notes: "",
     });
 
-    loadData();
+    await loadData();
   };
 
   const completeInstallation = async (id) => {
@@ -421,7 +457,7 @@ function Dashboard({ onLogout }) {
       getAuthHeaders()
     );
 
-    loadData();
+    await loadData();
   };
 
   const cancelInstallation = async (id) => {
@@ -431,11 +467,13 @@ function Dashboard({ onLogout }) {
       getAuthHeaders()
     );
 
-    loadData();
+    await loadData();
   };
 
   const getInvoiceCustomer = (customerId) => {
-    return customers.find((customer) => Number(customer.id) === Number(customerId));
+    return customers.find(
+      (customer) => Number(customer.id) === Number(customerId)
+    );
   };
 
   const filteredInvoices = invoices.filter((invoice) => {
@@ -1124,6 +1162,32 @@ function Dashboard({ onLogout }) {
                 />
               </div>
 
+              <div className="flex flex-wrap gap-3 mb-5">
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesExcel("")}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500"
+                >
+                  Exportar todas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesExcel("pending")}
+                  className="rounded-xl bg-orange-500 px-5 py-3 font-bold text-white hover:bg-orange-400"
+                >
+                  Exportar pendientes
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportInvoicesExcel("paid")}
+                  className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-500"
+                >
+                  Exportar pagadas
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <input
                   className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
@@ -1259,7 +1323,10 @@ function Dashboard({ onLogout }) {
             <GridList
               items={tickets}
               render={(ticket) => (
-                <Panel title={`Ticket #${ticket.id} - ${ticket.title}`} key={ticket.id}>
+                <Panel
+                  title={`Ticket #${ticket.id} - ${ticket.title}`}
+                  key={ticket.id}
+                >
                   <p>Cliente ID: {ticket.customer_id}</p>
                   <p>{ticket.description}</p>
                   <p>Estado: {ticket.status}</p>
