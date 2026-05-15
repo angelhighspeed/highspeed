@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import date, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -7,13 +8,14 @@ from sqlalchemy.orm import Session
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
     TableStyle,
     Paragraph,
     Spacer,
+    Image,
 )
 from reportlab.lib.units import cm
 
@@ -26,6 +28,16 @@ from app.models.customer_model import Customer
 router = APIRouter()
 
 
+COMPANY_DATA = {
+    "brand": "HighSpeed ISP",
+    "business_name": "Angel Gabriel Benitez",
+    "cuit": "20-38265225-9",
+    "locality": "Ituzaingo, Corrientes",
+    "phone": "3786494305",
+    "address": "Santa Fe entre calle 11 y 12",
+}
+
+
 def get_db():
     db = SessionLocal()
 
@@ -35,15 +47,30 @@ def get_db():
         db.close()
 
 
+def find_logo_path():
+    possible_paths = [
+        Path("app/static/logo.png"),
+        Path("static/logo.png"),
+        Path("../frontend/src/assets/logo.png"),
+        Path("frontend/src/assets/logo.png"),
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            return str(path)
+
+    return None
+
+
 def format_date(value):
     if value is None:
         return ""
 
     if isinstance(value, date):
-        return value.strftime("%Y-%m-%d")
+        return value.strftime("%d/%m/%Y")
 
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d")
+        return value.strftime("%d/%m/%Y")
 
     return str(value)
 
@@ -109,11 +136,29 @@ def export_invoices_pdf(
         pagesize=landscape(A4),
         rightMargin=1 * cm,
         leftMargin=1 * cm,
-        topMargin=1 * cm,
-        bottomMargin=1 * cm,
+        topMargin=0.8 * cm,
+        bottomMargin=0.8 * cm,
     )
 
     styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Title"],
+        fontSize=20,
+        textColor=colors.HexColor("#0F172A"),
+        alignment=1,
+        spaceAfter=8,
+    )
+
+    normal_center = ParagraphStyle(
+        "NormalCenter",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#334155"),
+        alignment=1,
+    )
+
     elements = []
 
     if status == "pending":
@@ -126,22 +171,86 @@ def export_invoices_pdf(
         title = "Todas las facturas"
         filename = "facturas.pdf"
 
-    elements.append(Paragraph(f"<b>HighSpeed ISP CRM - {title}</b>", styles["Title"]))
-    elements.append(Spacer(1, 0.3 * cm))
+    logo_path = find_logo_path()
 
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    elements.append(Paragraph(f"Generado: {generated_at}", styles["Normal"]))
-    elements.append(Spacer(1, 0.4 * cm))
+    if logo_path:
+        try:
+            logo = Image(logo_path)
+            logo.drawHeight = 1.8 * cm
+            logo.drawWidth = 5.5 * cm
 
-    total_amount = sum(float(invoice.amount or 0) for invoice in invoices)
+            logo_table = Table(
+                [[logo]],
+                colWidths=[27 * cm],
+            )
+
+            logo_table.setStyle(
+                TableStyle([
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ])
+            )
+
+            elements.append(logo_table)
+
+        except Exception:
+            elements.append(
+                Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style)
+            )
+    else:
+        elements.append(
+            Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style)
+        )
 
     elements.append(
         Paragraph(
-            f"Total facturas: {len(invoices)} | Total monto: {money(total_amount)}",
-            styles["Normal"],
+            f"<b>{COMPANY_DATA['brand']} CRM - {title}</b>",
+            title_style,
         )
     )
 
+    company_info = (
+        f"{COMPANY_DATA['business_name']} | "
+        f"CUIT: {COMPANY_DATA['cuit']} | "
+        f"{COMPANY_DATA['locality']} | "
+        f"Tel: {COMPANY_DATA['phone']} | "
+        f"{COMPANY_DATA['address']}"
+    )
+
+    elements.append(Paragraph(company_info, normal_center))
+    elements.append(Spacer(1, 0.3 * cm))
+
+    generated_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    total_amount = sum(float(invoice.amount or 0) for invoice in invoices)
+
+    summary_table = Table(
+        [[
+            f"Generado: {generated_at}",
+            f"Total facturas: {len(invoices)}",
+            f"Total monto: {money(total_amount)}",
+        ]],
+        colWidths=[
+            9 * cm,
+            9 * cm,
+            9 * cm,
+        ],
+    )
+
+    summary_table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EFF6FF")),
+            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1E3A8A")),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#BFDBFE")),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ])
+    )
+
+    elements.append(summary_table)
     elements.append(Spacer(1, 0.4 * cm))
 
     data = [
@@ -215,7 +324,15 @@ def export_invoices_pdf(
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
 
             ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            (
+                "ROWBACKGROUNDS",
+                (0, 1),
+                (-1, -1),
+                [
+                    colors.white,
+                    colors.HexColor("#F8FAFC"),
+                ],
+            ),
 
             ("ALIGN", (0, 1), (0, -1), "CENTER"),
             ("ALIGN", (6, 1), (8, -1), "CENTER"),

@@ -292,6 +292,38 @@ function Dashboard({ onLogout }) {
     }
   };
 
+
+  const exportInvoiceReceiptPdf = async (invoiceId) => {
+    try {
+      const res = await axios.get(
+        `${API}/invoices/${invoiceId}/receipt-pdf`,
+        {
+          ...getAuthHeaders(),
+          responseType: "blob",
+        }
+      );
+
+      const blob = new Blob([res.data], {
+        type: "application/pdf",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `recibo_factura_${invoiceId}.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Error descargando recibo:", error);
+      alert("No se pudo descargar el recibo.");
+    }
+  };
+
   const generateMonthlyBilling = async () => {
     const now = new Date();
 
@@ -554,6 +586,10 @@ function Dashboard({ onLogout }) {
   const paidAmount = paidInvoices.reduce(
     (sum, invoice) => sum + Number(invoice.amount || 0),
     0
+  );
+
+  const paidReceiptInvoices = filteredInvoices.filter(
+    (invoice) => invoice.status === "paid"
   );
 
   const networkData = [
@@ -1016,6 +1052,54 @@ function Dashboard({ onLogout }) {
               </div>
             </Panel>
 
+
+            <Panel title="Recibos individuales de facturas pagadas">
+              <p className="text-slate-600 mb-4">
+                Seleccioná una factura pagada para descargar solo ese recibo con logo y datos de la empresa.
+              </p>
+
+              {paidReceiptInvoices.length === 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                  No hay facturas pagadas para mostrar con el filtro actual.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {paidReceiptInvoices.map((invoice) => {
+                  const customer = getInvoiceCustomer(invoice.customer_id);
+
+                  return (
+                    <div
+                      key={`receipt-${invoice.id}`}
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                    >
+                      <p className="font-bold text-slate-900">
+                        {customer
+                          ? `${customer.name} ${customer.last_name || ""}`
+                          : `Cliente ID ${invoice.customer_id}`}
+                      </p>
+
+                      <p className="text-sm text-slate-500">
+                        Factura #{invoice.id} · ${invoice.amount}
+                      </p>
+
+                      <p className="text-sm text-slate-500">
+                        Usuario: {customer?.pppoe_username || "-"}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => exportInvoiceReceiptPdf(invoice.id)}
+                        className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
+                      >
+                        Descargar recibo
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+
             <GridList
               items={filteredInvoices}
               render={(invoice) => {
@@ -1074,6 +1158,15 @@ function Dashboard({ onLogout }) {
                         onClick={() => payInvoice(invoice.id)}
                       >
                         Marcar pagada
+                      </button>
+                    )}
+
+                    {invoice.status === "paid" && canManageInvoices && (
+                      <button
+                        className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500 mt-3"
+                        onClick={() => exportInvoiceReceiptPdf(invoice.id)}
+                      >
+                        Descargar recibo
                       </button>
                     )}
                   </Panel>
