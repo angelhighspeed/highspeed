@@ -44,6 +44,14 @@ function Dashboard({ onLogout }) {
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
 
+  const [generatingBilling, setGeneratingBilling] = useState(false);
+  const [billingResult, setBillingResult] = useState(null);
+
+  const [cutStatus, setCutStatus] = useState(null);
+  const [updatingCutStatus, setUpdatingCutStatus] = useState(false);
+  const [suspendingOverdue, setSuspendingOverdue] = useState(false);
+  const [suspendResult, setSuspendResult] = useState(null);
+
   const [invoiceForm, setInvoiceForm] = useState({
     customer_id: "",
     amount: "",
@@ -101,17 +109,17 @@ function Dashboard({ onLogout }) {
 
       if (canViewInvoices) {
         const res = await axios.get(`${API}/invoices`, headers);
-        setInvoices(res.data);
+        setInvoices(Array.isArray(res.data) ? res.data : []);
       }
 
       if (canViewTickets) {
         const res = await axios.get(`${API}/tickets`, headers);
-        setTickets(res.data);
+        setTickets(Array.isArray(res.data) ? res.data : []);
       }
 
       if (canViewInstallations) {
         const res = await axios.get(`${API}/installations`, headers);
-        setInstallations(res.data);
+        setInstallations(Array.isArray(res.data) ? res.data : []);
       }
 
       if (canViewStats) {
@@ -137,11 +145,28 @@ function Dashboard({ onLogout }) {
     }
   };
 
+  const loadCutStatus = async () => {
+    try {
+      if (!canViewInvoices) return;
+
+      const res = await axios.get(
+        `${API}/billing/cut-status`,
+        getAuthHeaders()
+      );
+
+      setCutStatus(res.data);
+    } catch (error) {
+      console.error("Error cargando estado de cortes:", error);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadCutStatus();
 
     const interval = setInterval(() => {
       loadData();
+      loadCutStatus();
     }, 15000);
 
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/dashboard");
@@ -181,6 +206,155 @@ function Dashboard({ onLogout }) {
   const payInvoice = async (id) => {
     await axios.put(`${API}/invoices/${id}/pay`, {}, getAuthHeaders());
     loadData();
+  };
+
+  const generateMonthlyBilling = async () => {
+    const now = new Date();
+
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+
+    const dueDayInput = window.prompt(
+      "¿Qué día de vencimiento querés usar?",
+      "15"
+    );
+
+    if (dueDayInput === null) return;
+
+    const dueDay = Number(dueDayInput || 15);
+
+    const ok = window.confirm(
+      `¿Generar facturas para ${month}/${year} con vencimiento día ${dueDay}?`
+    );
+
+    if (!ok) return;
+
+    try {
+      setGeneratingBilling(true);
+      setBillingResult(null);
+
+      const res = await axios.post(
+        `${API}/billing/generate-monthly`,
+        {
+          year,
+          month,
+          due_day: dueDay,
+        },
+        getAuthHeaders()
+      );
+
+      setBillingResult(res.data);
+
+      alert(
+        `Facturación generada.\nCreadas: ${
+          res.data.created || 0
+        }\nYa existentes: ${
+          res.data.skipped_existing || 0
+        }\nSin plan: ${
+          res.data.skipped_without_plan || 0
+        }\nSin precio: ${res.data.skipped_without_price || 0}`
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error("Error generando facturación mensual:", error);
+      alert("No se pudo generar la facturación mensual.");
+    } finally {
+      setGeneratingBilling(false);
+    }
+  };
+
+  const enableCuts = async () => {
+    const ok = window.confirm(
+      "¿Habilitar cortes? Desde este momento se podrá suspender clientes vencidos."
+    );
+
+    if (!ok) return;
+
+    try {
+      setUpdatingCutStatus(true);
+
+      await axios.post(
+        `${API}/billing/cut-enable`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadCutStatus();
+
+      alert("Cortes habilitados.");
+    } catch (error) {
+      console.error("Error habilitando cortes:", error);
+      alert("No se pudieron habilitar los cortes.");
+    } finally {
+      setUpdatingCutStatus(false);
+    }
+  };
+
+  const disableCuts = async () => {
+    const ok = window.confirm(
+      "¿Deshabilitar cortes? No se suspenderá ningún cliente aunque tenga facturas vencidas."
+    );
+
+    if (!ok) return;
+
+    try {
+      setUpdatingCutStatus(true);
+
+      await axios.post(
+        `${API}/billing/cut-disable`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadCutStatus();
+
+      alert("Cortes deshabilitados.");
+    } catch (error) {
+      console.error("Error deshabilitando cortes:", error);
+      alert("No se pudieron deshabilitar los cortes.");
+    } finally {
+      setUpdatingCutStatus(false);
+    }
+  };
+
+  const suspendOverdueCustomers = async () => {
+    const ok = window.confirm(
+      "¿Suspender clientes con facturas vencidas e impagas? Si los cortes están deshabilitados, no se cortará nadie."
+    );
+
+    if (!ok) return;
+
+    try {
+      setSuspendingOverdue(true);
+      setSuspendResult(null);
+
+      const res = await axios.post(
+        `${API}/billing/suspend-overdue`,
+        {},
+        getAuthHeaders()
+      );
+
+      setSuspendResult(res.data);
+
+      alert(
+        `${res.data.message}\nSuspendidos: ${
+          res.data.suspended_customers || 0
+        }\nMikroTik deshabilitados: ${
+          res.data.mikrotik_disabled || 0
+        }\nConexiones eliminadas: ${
+          res.data.active_connections_removed || 0
+        }`
+      );
+
+      await loadData();
+      await loadCutStatus();
+    } catch (error) {
+      console.error("Error suspendiendo vencidos:", error);
+      alert("No se pudo ejecutar la suspensión de vencidos.");
+    } finally {
+      setSuspendingOverdue(false);
+    }
   };
 
   const createTicket = async (e) => {
@@ -257,18 +431,6 @@ function Dashboard({ onLogout }) {
 
     loadData();
   };
-
-  const pendingInstallations = installations.filter(
-    (i) => i.status === "pending"
-  );
-
-  const completedInstallations = installations.filter(
-    (i) => i.status === "completed"
-  );
-
-  const cancelledInstallations = installations.filter(
-    (i) => i.status === "cancelled"
-  );
 
   const networkData = [
     { name: "15 May", sesiones: 580 },
@@ -524,6 +686,7 @@ function Dashboard({ onLogout }) {
                     <XAxis dataKey="name" stroke="#64748b" />
                     <YAxis stroke="#64748b" />
                     <Tooltip />
+
                     <Bar
                       dataKey="total"
                       fill="#0ea5e9"
@@ -659,7 +822,6 @@ function Dashboard({ onLogout }) {
         )}
 
         {section === "customers" && canViewCustomers && <CustomerManager />}
-
         {section === "online" && canViewOnline && <OnlineClients />}
 
         {section === "clientTraffic" && canViewClientTraffic && (
@@ -671,7 +833,193 @@ function Dashboard({ onLogout }) {
         {section === "invoices" && (
           <Module title="Facturas">
             {canManageInvoices && (
-              <Panel title="Crear factura">
+              <Panel title="Control de cortes">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-slate-700 font-semibold">
+                      Estado actual:
+                      <span
+                        className={`ml-2 rounded-lg px-3 py-1 text-xs font-bold ${
+                          cutStatus?.cuts_enabled
+                            ? "bg-green-500 text-white"
+                            : "bg-red-600 text-white"
+                        }`}
+                      >
+                        {cutStatus?.cuts_enabled
+                          ? "CORTES HABILITADOS"
+                          : "CORTES DESHABILITADOS"}
+                      </span>
+                    </p>
+
+                    <p className="text-sm text-slate-500 mt-2">
+                      Mientras los cortes estén deshabilitados, el sistema no
+                      suspende clientes ni toca MikroTik.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    {role === "admin" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={enableCuts}
+                          disabled={updatingCutStatus}
+                          className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-500 disabled:opacity-60"
+                        >
+                          Habilitar cortes
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={disableCuts}
+                          disabled={updatingCutStatus}
+                          className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-500 disabled:opacity-60"
+                        >
+                          Deshabilitar cortes
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={suspendOverdueCustomers}
+                      disabled={suspendingOverdue}
+                      className="rounded-xl bg-orange-500 px-5 py-3 font-bold text-white hover:bg-orange-400 disabled:opacity-60"
+                    >
+                      {suspendingOverdue
+                        ? "Procesando..."
+                        : "Suspender impagos vencidos"}
+                    </button>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            {suspendResult && (
+              <Panel title="Resultado suspensión de vencidos">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Facturas vencidas</p>
+                    <h3 className="text-2xl font-bold text-orange-500">
+                      {suspendResult.overdue_invoices || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">
+                      Clientes procesados
+                    </p>
+                    <h3 className="text-2xl font-bold text-blue-600">
+                      {suspendResult.customers_processed || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Suspendidos</p>
+                    <h3 className="text-2xl font-bold text-red-600">
+                      {suspendResult.suspended_customers || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">MikroTik disabled</p>
+                    <h3 className="text-2xl font-bold text-red-600">
+                      {suspendResult.mikrotik_disabled || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">
+                      Conexiones removidas
+                    </p>
+                    <h3 className="text-2xl font-bold text-red-600">
+                      {suspendResult.active_connections_removed || 0}
+                    </h3>
+                  </div>
+                </div>
+
+                <pre className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs overflow-auto">
+                  {JSON.stringify(suspendResult, null, 2)}
+                </pre>
+              </Panel>
+            )}
+
+            {canManageInvoices && (
+              <Panel title="Facturación mensual automática">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-slate-700">
+                      Genera facturas para todos los clientes activos con plan
+                      asignado.
+                    </p>
+
+                    <p className="text-sm text-slate-500 mt-1">
+                      No duplica facturas si el cliente ya tiene una factura en
+                      el mismo mes. El vencimiento recomendado es día 15.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={generateMonthlyBilling}
+                    disabled={generatingBilling}
+                    className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                  >
+                    {generatingBilling
+                      ? "Generando..."
+                      : "Generar facturas del mes"}
+                  </button>
+                </div>
+              </Panel>
+            )}
+
+            {billingResult && (
+              <Panel title="Resultado facturación mensual">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Creadas</p>
+                    <h3 className="text-2xl font-bold text-green-600">
+                      {billingResult.created || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Ya existentes</p>
+                    <h3 className="text-2xl font-bold text-blue-600">
+                      {billingResult.skipped_existing || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Sin plan</p>
+                    <h3 className="text-2xl font-bold text-orange-500">
+                      {billingResult.skipped_without_plan || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Sin precio</p>
+                    <h3 className="text-2xl font-bold text-orange-500">
+                      {billingResult.skipped_without_price || 0}
+                    </h3>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-slate-500 text-sm">Errores</p>
+                    <h3 className="text-2xl font-bold text-red-600">
+                      {billingResult.errors?.length || 0}
+                    </h3>
+                  </div>
+                </div>
+
+                <pre className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs overflow-auto">
+                  {JSON.stringify(billingResult, null, 2)}
+                </pre>
+              </Panel>
+            )}
+
+            {canManageInvoices && (
+              <Panel title="Crear factura manual">
                 <form
                   onSubmit={createInvoice}
                   className="grid grid-cols-1 md:grid-cols-3 gap-4"
