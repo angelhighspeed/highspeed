@@ -38,8 +38,12 @@ function Dashboard({ onLogout }) {
   const [section, setSection] = useState("dashboard");
 
   const [invoices, setInvoices] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [installations, setInstallations] = useState([]);
+
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
 
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
@@ -108,8 +112,13 @@ function Dashboard({ onLogout }) {
       const headers = getAuthHeaders();
 
       if (canViewInvoices) {
-        const res = await axios.get(`${API}/invoices`, headers);
-        setInvoices(Array.isArray(res.data) ? res.data : []);
+        const [invoicesRes, customersRes] = await Promise.all([
+          axios.get(`${API}/invoices`, headers),
+          axios.get(`${API}/customers`, headers),
+        ]);
+
+        setInvoices(Array.isArray(invoicesRes.data) ? invoicesRes.data : []);
+        setCustomers(Array.isArray(customersRes.data) ? customersRes.data : []);
       }
 
       if (canViewTickets) {
@@ -132,6 +141,7 @@ function Dashboard({ onLogout }) {
           `${API}/dashboard/clients-status`,
           headers
         );
+
         setClientStatus(res.data);
       }
     } catch (error) {
@@ -274,11 +284,7 @@ function Dashboard({ onLogout }) {
     try {
       setUpdatingCutStatus(true);
 
-      await axios.post(
-        `${API}/billing/cut-enable`,
-        {},
-        getAuthHeaders()
-      );
+      await axios.post(`${API}/billing/cut-enable`, {}, getAuthHeaders());
 
       await loadCutStatus();
 
@@ -301,11 +307,7 @@ function Dashboard({ onLogout }) {
     try {
       setUpdatingCutStatus(true);
 
-      await axios.post(
-        `${API}/billing/cut-disable`,
-        {},
-        getAuthHeaders()
-      );
+      await axios.post(`${API}/billing/cut-disable`, {}, getAuthHeaders());
 
       await loadCutStatus();
 
@@ -431,6 +433,52 @@ function Dashboard({ onLogout }) {
 
     loadData();
   };
+
+  const getInvoiceCustomer = (customerId) => {
+    return customers.find((customer) => Number(customer.id) === Number(customerId));
+  };
+
+  const filteredInvoices = invoices.filter((invoice) => {
+    const customer = getInvoiceCustomer(invoice.customer_id);
+
+    const text = `
+      ${invoice.id || ""}
+      ${invoice.customer_id || ""}
+      ${invoice.amount || ""}
+      ${invoice.due_date || ""}
+      ${invoice.status || ""}
+      ${customer?.name || ""}
+      ${customer?.last_name || ""}
+      ${customer?.pppoe_username || ""}
+      ${customer?.remote_address || ""}
+      ${customer?.phone || ""}
+      ${customer?.zone || ""}
+    `.toLowerCase();
+
+    const matchesSearch = text.includes(invoiceSearch.toLowerCase());
+
+    const matchesStatus = invoiceStatusFilter
+      ? invoice.status === invoiceStatusFilter
+      : true;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const pendingInvoices = invoices.filter(
+    (invoice) => invoice.status === "pending"
+  );
+
+  const paidInvoices = invoices.filter((invoice) => invoice.status === "paid");
+
+  const pendingAmount = pendingInvoices.reduce(
+    (sum, invoice) => sum + Number(invoice.amount || 0),
+    0
+  );
+
+  const paidAmount = paidInvoices.reduce(
+    (sum, invoice) => sum + Number(invoice.amount || 0),
+    0
+  );
 
   const networkData = [
     { name: "15 May", sesiones: 580 },
@@ -822,6 +870,7 @@ function Dashboard({ onLogout }) {
         )}
 
         {section === "customers" && canViewCustomers && <CustomerManager />}
+
         {section === "online" && canViewOnline && <OnlineClients />}
 
         {section === "clientTraffic" && canViewClientTraffic && (
@@ -898,44 +947,35 @@ function Dashboard({ onLogout }) {
             {suspendResult && (
               <Panel title="Resultado suspensión de vencidos">
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Facturas vencidas</p>
-                    <h3 className="text-2xl font-bold text-orange-500">
-                      {suspendResult.overdue_invoices || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Facturas vencidas"
+                    value={suspendResult.overdue_invoices || 0}
+                    color="text-orange-500"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">
-                      Clientes procesados
-                    </p>
-                    <h3 className="text-2xl font-bold text-blue-600">
-                      {suspendResult.customers_processed || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Clientes procesados"
+                    value={suspendResult.customers_processed || 0}
+                    color="text-blue-600"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Suspendidos</p>
-                    <h3 className="text-2xl font-bold text-red-600">
-                      {suspendResult.suspended_customers || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Suspendidos"
+                    value={suspendResult.suspended_customers || 0}
+                    color="text-red-600"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">MikroTik disabled</p>
-                    <h3 className="text-2xl font-bold text-red-600">
-                      {suspendResult.mikrotik_disabled || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="MikroTik disabled"
+                    value={suspendResult.mikrotik_disabled || 0}
+                    color="text-red-600"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">
-                      Conexiones removidas
-                    </p>
-                    <h3 className="text-2xl font-bold text-red-600">
-                      {suspendResult.active_connections_removed || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Conexiones removidas"
+                    value={suspendResult.active_connections_removed || 0}
+                    color="text-red-600"
+                  />
                 </div>
 
                 <pre className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs overflow-auto">
@@ -976,40 +1016,35 @@ function Dashboard({ onLogout }) {
             {billingResult && (
               <Panel title="Resultado facturación mensual">
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Creadas</p>
-                    <h3 className="text-2xl font-bold text-green-600">
-                      {billingResult.created || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Creadas"
+                    value={billingResult.created || 0}
+                    color="text-green-600"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Ya existentes</p>
-                    <h3 className="text-2xl font-bold text-blue-600">
-                      {billingResult.skipped_existing || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Ya existentes"
+                    value={billingResult.skipped_existing || 0}
+                    color="text-blue-600"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Sin plan</p>
-                    <h3 className="text-2xl font-bold text-orange-500">
-                      {billingResult.skipped_without_plan || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Sin plan"
+                    value={billingResult.skipped_without_plan || 0}
+                    color="text-orange-500"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Sin precio</p>
-                    <h3 className="text-2xl font-bold text-orange-500">
-                      {billingResult.skipped_without_price || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Sin precio"
+                    value={billingResult.skipped_without_price || 0}
+                    color="text-orange-500"
+                  />
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-slate-500 text-sm">Errores</p>
-                    <h3 className="text-2xl font-bold text-red-600">
-                      {billingResult.errors?.length || 0}
-                    </h3>
-                  </div>
+                  <StatBox
+                    title="Errores"
+                    value={billingResult.errors?.length || 0}
+                    color="text-red-600"
+                  />
                 </div>
 
                 <pre className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-xs overflow-auto">
@@ -1066,25 +1101,112 @@ function Dashboard({ onLogout }) {
               </Panel>
             )}
 
-            <GridList
-              items={invoices}
-              render={(i) => (
-                <Panel title={`Factura #${i.id}`} key={i.id}>
-                  <p>Cliente ID: {i.customer_id}</p>
-                  <p>Monto: ${i.amount}</p>
-                  <p>Vence: {i.due_date}</p>
-                  <p>Estado: {i.status}</p>
+            <Panel title="Resumen y búsqueda de facturas">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+                <StatBox title="Total facturas" value={invoices.length} />
 
-                  {i.status === "pending" && canManageInvoices && (
-                    <button
-                      className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
-                      onClick={() => payInvoice(i.id)}
-                    >
-                      Marcar pagada
-                    </button>
-                  )}
-                </Panel>
-              )}
+                <StatBox
+                  title="Pendientes"
+                  value={pendingInvoices.length}
+                  color="text-orange-500"
+                />
+
+                <StatBox
+                  title="Por cobrar"
+                  value={`$${pendingAmount}`}
+                  color="text-red-600"
+                />
+
+                <StatBox
+                  title="Cobrado"
+                  value={`$${paidAmount}`}
+                  color="text-green-600"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
+                  placeholder="Buscar por cliente, usuario PPPoE, IP, teléfono o factura..."
+                  value={invoiceSearch}
+                  onChange={(e) => setInvoiceSearch(e.target.value)}
+                />
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={invoiceStatusFilter}
+                  onChange={(e) => setInvoiceStatusFilter(e.target.value)}
+                >
+                  <option value="">Todas</option>
+                  <option value="pending">Pendientes</option>
+                  <option value="paid">Pagadas</option>
+                </select>
+              </div>
+            </Panel>
+
+            <GridList
+              items={filteredInvoices}
+              render={(invoice) => {
+                const customer = getInvoiceCustomer(invoice.customer_id);
+
+                return (
+                  <Panel title={`Factura #${invoice.id}`} key={invoice.id}>
+                    <p>
+                      <b>Cliente:</b>{" "}
+                      {customer
+                        ? `${customer.name} ${customer.last_name || ""}`
+                        : `ID ${invoice.customer_id}`}
+                    </p>
+
+                    <p>
+                      <b>Usuario PPPoE:</b>{" "}
+                      {customer?.pppoe_username || "-"}
+                    </p>
+
+                    <p>
+                      <b>IP:</b> {customer?.remote_address || "-"}
+                    </p>
+
+                    <p>
+                      <b>Teléfono:</b> {customer?.phone || "-"}
+                    </p>
+
+                    <p>
+                      <b>Zona:</b> {customer?.zone || "-"}
+                    </p>
+
+                    <p>
+                      <b>Monto:</b> ${invoice.amount}
+                    </p>
+
+                    <p>
+                      <b>Vence:</b> {invoice.due_date}
+                    </p>
+
+                    <p>
+                      <b>Estado:</b>{" "}
+                      <span
+                        className={`rounded-md px-3 py-1 text-xs font-bold ${
+                          invoice.status === "paid"
+                            ? "bg-green-500 text-white"
+                            : "bg-orange-500 text-white"
+                        }`}
+                      >
+                        {invoice.status === "paid" ? "Pagada" : "Pendiente"}
+                      </span>
+                    </p>
+
+                    {invoice.status === "pending" && canManageInvoices && (
+                      <button
+                        className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
+                        onClick={() => payInvoice(invoice.id)}
+                      >
+                        Marcar pagada
+                      </button>
+                    )}
+                  </Panel>
+                );
+              }}
             />
           </Module>
         )}
@@ -1136,16 +1258,16 @@ function Dashboard({ onLogout }) {
 
             <GridList
               items={tickets}
-              render={(t) => (
-                <Panel title={`Ticket #${t.id} - ${t.title}`} key={t.id}>
-                  <p>Cliente ID: {t.customer_id}</p>
-                  <p>{t.description}</p>
-                  <p>Estado: {t.status}</p>
+              render={(ticket) => (
+                <Panel title={`Ticket #${ticket.id} - ${ticket.title}`} key={ticket.id}>
+                  <p>Cliente ID: {ticket.customer_id}</p>
+                  <p>{ticket.description}</p>
+                  <p>Estado: {ticket.status}</p>
 
-                  {t.status === "open" && canManageTickets && (
+                  {ticket.status === "open" && canManageTickets && (
                     <button
                       className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
-                      onClick={() => closeTicket(t.id)}
+                      onClick={() => closeTicket(ticket.id)}
                     >
                       Cerrar ticket
                     </button>
@@ -1241,33 +1363,37 @@ function Dashboard({ onLogout }) {
 
             <GridList
               items={installations}
-              render={(i) => (
-                <Panel title={`Instalación #${i.id}`} key={i.id}>
-                  <p>Cliente ID: {i.customer_id}</p>
-                  <p>Técnico: {i.technician}</p>
-                  <p>Fecha: {i.scheduled_date}</p>
-                  <p>Dirección: {i.address}</p>
-                  <p>Tipo: {i.installation_type}</p>
-                  <p>Estado: {i.status}</p>
-                  <p>{i.notes}</p>
+              render={(installation) => (
+                <Panel
+                  title={`Instalación #${installation.id}`}
+                  key={installation.id}
+                >
+                  <p>Cliente ID: {installation.customer_id}</p>
+                  <p>Técnico: {installation.technician}</p>
+                  <p>Fecha: {installation.scheduled_date}</p>
+                  <p>Dirección: {installation.address}</p>
+                  <p>Tipo: {installation.installation_type}</p>
+                  <p>Estado: {installation.status}</p>
+                  <p>{installation.notes}</p>
 
-                  {i.status === "pending" && canManageInstallations && (
-                    <div className="flex gap-3 mt-4">
-                      <button
-                        className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
-                        onClick={() => completeInstallation(i.id)}
-                      >
-                        Completar
-                      </button>
+                  {installation.status === "pending" &&
+                    canManageInstallations && (
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
+                          onClick={() => completeInstallation(installation.id)}
+                        >
+                          Completar
+                        </button>
 
-                      <button
-                        className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-500"
-                        onClick={() => cancelInstallation(i.id)}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-500"
+                          onClick={() => cancelInstallation(installation.id)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
                 </Panel>
               )}
             />
@@ -1402,6 +1528,15 @@ function GridList({ items, render }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mt-5">
       {items.map(render)}
+    </div>
+  );
+}
+
+function StatBox({ title, value, color = "text-slate-950" }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-slate-500 text-sm">{title}</p>
+      <h3 className={`text-2xl font-bold ${color}`}>{value}</h3>
     </div>
   );
 }
