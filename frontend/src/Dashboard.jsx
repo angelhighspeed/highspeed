@@ -42,6 +42,12 @@ function Dashboard({ onLogout }) {
   const [tickets, setTickets] = useState([]);
   const [installations, setInstallations] = useState([]);
 
+  const [cashboxDate, setCashboxDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [cashboxData, setCashboxData] = useState(null);
+  const [cashboxLoading, setCashboxLoading] = useState(false);
+
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
 
@@ -90,6 +96,7 @@ function Dashboard({ onLogout }) {
 
   const canViewInvoices = ["admin", "cobrador"].includes(role);
   const canManageInvoices = ["admin", "cobrador"].includes(role);
+  const canViewCashbox = ["admin", "cobrador"].includes(role);
 
   const canViewTickets = ["admin", "tecnico", "operador"].includes(role);
   const canManageTickets = ["admin", "tecnico"].includes(role);
@@ -106,6 +113,34 @@ function Dashboard({ onLogout }) {
     "operador",
     "cobrador",
   ].includes(role);
+
+
+  const loadCashbox = async (dateValue = cashboxDate) => {
+    try {
+      if (!canViewCashbox) return;
+
+      setCashboxLoading(true);
+
+      const params = dateValue ? `?report_date=${dateValue}` : "";
+
+      const res = await axios.get(
+        `${API}/cashbox/daily${params}`,
+        getAuthHeaders()
+      );
+
+      setCashboxData(res.data);
+    } catch (error) {
+      console.error("Error cargando caja diaria:", error);
+
+      if (error.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        onLogout();
+      }
+    } finally {
+      setCashboxLoading(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -167,25 +202,82 @@ function Dashboard({ onLogout }) {
   };
 
   useEffect(() => {
+    let ws = null;
+    let reconnectTimer = null;
+    let closedByReact = false;
+
+    const getDashboardWsUrl = () => {
+      const baseUrl = API || "http://127.0.0.1:8000";
+
+      return (
+        baseUrl
+          .replace("https://", "wss://")
+          .replace("http://", "ws://") + "/ws/dashboard"
+      );
+    };
+
+    const connectDashboardWs = () => {
+      try {
+        ws = new WebSocket(getDashboardWsUrl());
+
+        ws.onopen = () => {
+          console.log("Dashboard realtime conectado");
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            setStats(JSON.parse(event.data));
+          } catch (error) {
+            console.error("Error leyendo datos realtime:", error);
+          }
+        };
+
+        ws.onerror = () => {
+          console.warn("Dashboard realtime no disponible");
+        };
+
+        ws.onclose = () => {
+          if (!closedByReact) {
+            reconnectTimer = setTimeout(() => {
+              connectDashboardWs();
+            }, 5000);
+          }
+        };
+      } catch (error) {
+        console.warn("No se pudo iniciar WebSocket dashboard:", error);
+      }
+    };
+
     loadData();
     loadCutStatus();
+    connectDashboardWs();
 
     const interval = setInterval(() => {
       loadData();
       loadCutStatus();
     }, 15000);
 
-    const ws = new WebSocket("ws://127.0.0.1:8000/ws/dashboard");
-
-    ws.onmessage = (event) => {
-      setStats(JSON.parse(event.data));
-    };
-
     return () => {
+      closedByReact = true;
+
       clearInterval(interval);
-      ws.close();
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+
+      if (ws) {
+        ws.close();
+      }
     };
   }, []);
+
+
+  useEffect(() => {
+    if (section === "cashbox") {
+      loadCashbox(cashboxDate);
+    }
+  }, [section, cashboxDate]);
 
   const createInvoice = async (e) => {
     e.preventDefault();
@@ -692,6 +784,15 @@ Nota: ${paymentNote || "-"}`
               label="Facturas"
               active={section === "invoices"}
               onClick={() => setSection("invoices")}
+            />
+          )}
+
+          {canViewCashbox && (
+            <SidebarButton
+              icon="💵"
+              label="Caja diaria"
+              active={section === "cashbox"}
+              onClick={() => setSection("cashbox")}
             />
           )}
 
@@ -1227,6 +1328,184 @@ Nota: ${paymentNote || "-"}`
                 );
               }}
             />
+          </Module>
+        )}
+
+
+        {section === "cashbox" && canViewCashbox && (
+          <Module title="Caja diaria">
+            <Panel title="Filtro de caja">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">
+                    Fecha
+                  </label>
+
+                  <input
+                    type="date"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                    value={cashboxDate}
+                    onChange={(e) => setCashboxDate(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => loadCashbox(cashboxDate)}
+                  disabled={cashboxLoading}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                >
+                  {cashboxLoading ? "Cargando..." : "Actualizar caja"}
+                </button>
+              </div>
+            </Panel>
+
+            <Panel title="Resumen de cobranza">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <StatBox
+                  title="Fecha"
+                  value={cashboxData?.date || cashboxDate}
+                  color="text-blue-600"
+                />
+
+                <StatBox
+                  title="Pagos"
+                  value={cashboxData?.total_payments || 0}
+                  color="text-slate-950"
+                />
+
+                <StatBox
+                  title="Total cobrado"
+                  value={`$${cashboxData?.total_amount || 0}`}
+                  color="text-green-600"
+                />
+
+                <StatBox
+                  title="Métodos"
+                  value={cashboxData?.by_method?.length || 0}
+                  color="text-purple-600"
+                />
+              </div>
+            </Panel>
+
+            <Panel title="Cobrado por método de pago">
+              {!cashboxData?.by_method?.length && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                  No hay pagos para esta fecha.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(cashboxData?.by_method || []).map((method) => (
+                  <div
+                    key={method.payment_method}
+                    className="rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <p className="text-slate-500 text-sm">
+                      {method.payment_method}
+                    </p>
+
+                    <h3 className="text-2xl font-bold text-green-600">
+                      ${method.total}
+                    </h3>
+
+                    <p className="text-sm text-slate-500">
+                      {method.count} pago(s)
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            <Panel title="Listado de cobros del día">
+              {!cashboxData?.payments?.length && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                  Todavía no hay cobros registrados en esta fecha.
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full border border-slate-200 rounded-xl overflow-hidden">
+                  <thead className="bg-slate-100">
+                    <tr>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Hora
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Factura
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Cliente
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Usuario
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Método
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Monto
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Observación
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                        Recibo
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {(cashboxData?.payments || []).map((payment) => (
+                      <tr
+                        key={payment.invoice_id}
+                        className="border-t border-slate-200"
+                      >
+                        <td className="px-3 py-3 text-sm text-slate-700">
+                          {payment.paid_at || "-"}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm font-bold text-slate-900">
+                          #{payment.invoice_id}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm text-slate-700">
+                          {payment.customer_name || "-"}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm text-slate-700">
+                          {payment.pppoe_username || "-"}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm text-slate-700">
+                          {payment.payment_method || "-"}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm font-bold text-green-600">
+                          ${payment.amount || 0}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm text-slate-700">
+                          {payment.payment_note || "-"}
+                        </td>
+
+                        <td className="px-3 py-3 text-sm">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportInvoiceReceiptPdf(payment.invoice_id)
+                            }
+                            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500"
+                          >
+                            Descargar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
           </Module>
         )}
 
