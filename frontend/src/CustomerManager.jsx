@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
-const API = import.meta.env.VITE_API_URL;
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const getAuthHeaders = () => ({
   headers: {
@@ -55,6 +55,7 @@ function CustomerManager() {
   const [selected, setSelected] = useState([]);
   const [bulkAction, setBulkAction] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [customerActionLoadingId, setCustomerActionLoadingId] = useState(null);
 
   const [excelFile, setExcelFile] = useState(null);
   const [importingExcel, setImportingExcel] = useState(false);
@@ -69,7 +70,7 @@ function CustomerManager() {
     const headers = getAuthHeaders();
 
     const [customersRes, plansRes, routersRes] = await Promise.all([
-      axios.get(`${API}/customers`, headers),
+      axios.get(`${API}/customers/list-all`, headers),
       axios.get(`${API}/plans`, headers),
       axios.get(`${API}/routers`, headers),
     ]);
@@ -137,6 +138,14 @@ function CustomerManager() {
   }, [customers]);
 
   const filteredCustomers = customers.filter((c) => {
+    const status = String(c.status || "").toLowerCase();
+
+    // Los clientes creados desde Instalaciones quedan como preclientes.
+    // No deben aparecer en el módulo Clientes hasta completar la instalación.
+    if (status === "pending_installation" || status === "deleted") {
+      return false;
+    }
+
     const text = `
       ${c.id || ""}
       ${c.name || ""}
@@ -279,27 +288,103 @@ function CustomerManager() {
     await loadData();
   };
 
+  const showCustomerActionResult = (res) => {
+    const message = res.data?.message || "Acción realizada correctamente.";
+    const mikrotikStatus = res.data?.mikrotik?.status || "-";
+    const mikrotikMessage = res.data?.mikrotik?.message || "-";
+
+    alert(`${message}\n\nMikroTik: ${mikrotikStatus}\n${mikrotikMessage}`);
+  };
+
+  const showCustomerActionError = (error) => {
+    console.error("Error ejecutando acción de cliente:", error);
+
+    const detail =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message ||
+      "Error desconocido";
+
+    alert(`No se pudo ejecutar la acción.\n\n${detail}`);
+  };
+
   const deleteCustomer = async (customerId) => {
-    const ok = window.confirm("¿Seguro que querés eliminar este cliente?");
+    const ok = window.confirm(
+      "¿Seguro que querés eliminar este cliente del listado principal?\n\nNo se borra su historial; queda marcado como eliminado y se intenta deshabilitar en MikroTik."
+    );
+
     if (!ok) return;
 
-    await axios.delete(`${API}/customers/${customerId}`, getAuthHeaders());
+    try {
+      setCustomerActionLoadingId(customerId);
 
-    setSelected((prev) => prev.filter((id) => id !== customerId));
+      const res = await axios.delete(
+        `${API}/customers/${customerId}`,
+        getAuthHeaders()
+      );
 
-    await loadData();
+      setSelected((prev) => prev.filter((id) => id !== customerId));
+
+      await loadData();
+
+      showCustomerActionResult(res);
+    } catch (error) {
+      showCustomerActionError(error);
+    } finally {
+      setCustomerActionLoadingId(null);
+    }
   };
 
   const suspendCustomer = async (customerId) => {
-    await axios.put(`${API}/customers/${customerId}/suspend`, {}, getAuthHeaders());
+    const ok = window.confirm(
+      "¿Suspender este cliente?\n\nSe marcará como suspendido y se intentará deshabilitar el PPPoE en MikroTik."
+    );
 
-    await loadData();
+    if (!ok) return;
+
+    try {
+      setCustomerActionLoadingId(customerId);
+
+      const res = await axios.put(
+        `${API}/customers/${customerId}/suspend`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadData();
+
+      showCustomerActionResult(res);
+    } catch (error) {
+      showCustomerActionError(error);
+    } finally {
+      setCustomerActionLoadingId(null);
+    }
   };
 
   const activateCustomer = async (customerId) => {
-    await axios.put(`${API}/customers/${customerId}/activate`, {}, getAuthHeaders());
+    const ok = window.confirm(
+      "¿Activar este cliente?\n\nSe marcará como activo y se intentará habilitar el PPPoE en MikroTik."
+    );
 
-    await loadData();
+    if (!ok) return;
+
+    try {
+      setCustomerActionLoadingId(customerId);
+
+      const res = await axios.put(
+        `${API}/customers/${customerId}/activate`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadData();
+
+      showCustomerActionResult(res);
+    } catch (error) {
+      showCustomerActionError(error);
+    } finally {
+      setCustomerActionLoadingId(null);
+    }
   };
 
   const toggleSelected = (id) => {
@@ -336,17 +421,30 @@ function CustomerManager() {
 
     if (!ok) return;
 
+    const errors = [];
+
     for (const id of selected) {
-      if (bulkAction === "activate") {
-        await axios.put(`${API}/customers/${id}/activate`, {}, getAuthHeaders());
-      }
+      try {
+        if (bulkAction === "activate") {
+          await axios.put(`${API}/customers/${id}/activate`, {}, getAuthHeaders());
+        }
 
-      if (bulkAction === "suspend") {
-        await axios.put(`${API}/customers/${id}/suspend`, {}, getAuthHeaders());
-      }
+        if (bulkAction === "suspend") {
+          await axios.put(`${API}/customers/${id}/suspend`, {}, getAuthHeaders());
+        }
 
-      if (bulkAction === "delete") {
-        await axios.delete(`${API}/customers/${id}`, getAuthHeaders());
+        if (bulkAction === "delete") {
+          await axios.delete(`${API}/customers/${id}`, getAuthHeaders());
+        }
+      } catch (error) {
+        errors.push({
+          id,
+          error:
+            error.response?.data?.detail ||
+            error.response?.data?.message ||
+            error.message ||
+            "Error desconocido",
+        });
       }
     }
 
@@ -354,6 +452,15 @@ function CustomerManager() {
     setBulkAction("");
 
     await loadData();
+
+    if (errors.length > 0) {
+      alert(
+        `Acción terminada con errores en ${errors.length} cliente(s):\n\n` +
+          errors.map((item) => `ID ${item.id}: ${item.error}`).join("\n")
+      );
+    } else {
+      alert("Acción masiva realizada correctamente.");
+    }
   };
 
   return (
@@ -626,33 +733,63 @@ function CustomerManager() {
                         <td className="p-3">
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => editCustomer(c)}
-                              className="rounded-lg bg-yellow-500 px-3 py-2 font-bold text-slate-950 hover:bg-yellow-400"
+                              type="button"
+                              disabled={customerActionLoadingId === c.id}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                editCustomer(c);
+                              }}
+                              className="rounded-lg bg-yellow-500 px-3 py-2 font-bold text-slate-950 hover:bg-yellow-400 disabled:opacity-60"
                             >
                               Editar
                             </button>
 
                             {c.status === "active" ? (
                               <button
-                                onClick={() => suspendCustomer(c.id)}
-                                className="rounded-lg bg-orange-500 px-3 py-2 font-bold text-white hover:bg-orange-400"
+                                type="button"
+                                disabled={customerActionLoadingId === c.id}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  suspendCustomer(c.id);
+                                }}
+                                className="rounded-lg bg-orange-500 px-3 py-2 font-bold text-white hover:bg-orange-400 disabled:opacity-60"
                               >
-                                Suspender
+                                {customerActionLoadingId === c.id
+                                  ? "Procesando..."
+                                  : "Suspender"}
                               </button>
                             ) : (
                               <button
-                                onClick={() => activateCustomer(c.id)}
-                                className="rounded-lg bg-green-600 px-3 py-2 font-bold text-white hover:bg-green-500"
+                                type="button"
+                                disabled={customerActionLoadingId === c.id}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  activateCustomer(c.id);
+                                }}
+                                className="rounded-lg bg-green-600 px-3 py-2 font-bold text-white hover:bg-green-500 disabled:opacity-60"
                               >
-                                Activar
+                                {customerActionLoadingId === c.id
+                                  ? "Procesando..."
+                                  : "Activar"}
                               </button>
                             )}
 
                             <button
-                              onClick={() => deleteCustomer(c.id)}
-                              className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white hover:bg-red-500"
+                              type="button"
+                              disabled={customerActionLoadingId === c.id}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deleteCustomer(c.id);
+                              }}
+                              className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white hover:bg-red-500 disabled:opacity-60"
                             >
-                              Eliminar
+                              {customerActionLoadingId === c.id
+                                ? "Procesando..."
+                                : "Eliminar"}
                             </button>
                           </div>
                         </td>

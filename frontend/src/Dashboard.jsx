@@ -24,7 +24,7 @@ import {
   AreaChart,
 } from "recharts";
 
-const API = import.meta.env.VITE_API_URL;
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const getAuthHeaders = () => ({
   headers: {
@@ -41,26 +41,13 @@ function Dashboard({ onLogout }) {
   const [customers, setCustomers] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [installations, setInstallations] = useState([]);
-
-  const [ticketSearch, setTicketSearch] = useState("");
-  const [ticketStatusFilter, setTicketStatusFilter] = useState("");
-  const [ticketPriorityFilter, setTicketPriorityFilter] = useState("");
-  const [ticketCustomerSearch, setTicketCustomerSearch] = useState("");
-
-  const [cashboxDate, setCashboxDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [cashboxData, setCashboxData] = useState(null);
-  const [cashboxLoading, setCashboxLoading] = useState(false);
-
-  const [paymentHistoryCustomerId, setPaymentHistoryCustomerId] = useState("");
-  const [paymentHistoryData, setPaymentHistoryData] = useState(null);
-  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
-
-  const [customerFinanceData, setCustomerFinanceData] = useState(null);
-  const [customerFinanceLoading, setCustomerFinanceLoading] = useState(false);
-  const [customerFinanceSearch, setCustomerFinanceSearch] = useState("");
-  const [customerFinanceStatusFilter, setCustomerFinanceStatusFilter] = useState("");
+  const [installationRouters, setInstallationRouters] = useState([]);
+  const [installationPlans, setInstallationPlans] = useState([]);
+  const [mikrotikPools, setMikrotikPools] = useState([]);
+  const [selectedPoolName, setSelectedPoolName] = useState("");
+  const [availableIps, setAvailableIps] = useState([]);
+  const [availableIpsLoading, setAvailableIpsLoading] = useState(false);
+  const [showNewInstallationForm, setShowNewInstallationForm] = useState(false);
 
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
@@ -86,15 +73,35 @@ function Dashboard({ onLogout }) {
     customer_id: "",
     title: "",
     description: "",
-    priority: "medium",
-    assigned_technician: "",
   });
 
   const [installationForm, setInstallationForm] = useState({
-    customer_id: "",
+    customer_name: "",
+    customer_last_name: "",
+    customer_dni: "",
+    customer_email: "",
+    customer_email_cc: "",
+    customer_phone: "",
+    customer_zone: "",
+    customer_city: "",
+    customer_address: "",
+    customer_external_id: "",
+    customer_coordinates: "",
+    contract_type: "",
+    installation_cost: "",
+    comments: "",
+    pppoe_username: "",
+    pppoe_password: "",
+    remote_address: "",
+    mac_cpe: "",
+    local_address_pppoe: "",
+    router_id: "",
+    client_zone: "",
+    plan_id: "",
     technician: "",
     scheduled_date: "",
-    address: "",
+    installation_status: "Nueva",
+    sector_node_nap: "",
     installation_type: "",
     notes: "",
   });
@@ -112,9 +119,6 @@ function Dashboard({ onLogout }) {
 
   const canViewInvoices = ["admin", "cobrador"].includes(role);
   const canManageInvoices = ["admin", "cobrador"].includes(role);
-  const canViewCashbox = ["admin", "cobrador"].includes(role);
-  const canViewPaymentHistory = ["admin", "cobrador", "operador"].includes(role);
-  const canViewCustomerFinance = ["admin", "cobrador", "operador", "tecnico"].includes(role);
 
   const canViewTickets = ["admin", "tecnico", "operador"].includes(role);
   const canManageTickets = ["admin", "tecnico"].includes(role);
@@ -131,120 +135,6 @@ function Dashboard({ onLogout }) {
     "operador",
     "cobrador",
   ].includes(role);
-
-
-  const loadCashbox = async (dateValue = cashboxDate) => {
-    try {
-      if (!canViewCashbox) return;
-
-      setCashboxLoading(true);
-
-      const params = dateValue ? `?report_date=${dateValue}` : "";
-
-      const res = await axios.get(
-        `${API}/cashbox/daily${params}`,
-        getAuthHeaders()
-      );
-
-      setCashboxData(res.data);
-    } catch (error) {
-      console.error("Error cargando caja diaria:", error);
-
-      if (error.response?.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
-        onLogout();
-      }
-    } finally {
-      setCashboxLoading(false);
-    }
-  };
-
-
-  const loadPaymentHistory = async (customerId = paymentHistoryCustomerId) => {
-    try {
-      if (!canViewPaymentHistory) return;
-
-      const cleanCustomerId = String(customerId || "").trim();
-
-      if (!cleanCustomerId) {
-        alert("Ingresá el ID del cliente.");
-        return;
-      }
-
-      setPaymentHistoryLoading(true);
-
-      const res = await axios.get(
-        `${API}/customers/${cleanCustomerId}/payment-history`,
-        getAuthHeaders()
-      );
-
-      setPaymentHistoryData(res.data);
-      setPaymentHistoryCustomerId(cleanCustomerId);
-    } catch (error) {
-      console.error("Error cargando historial de pagos:", error);
-
-      if (error.response?.status === 404) {
-        alert("Cliente no encontrado.");
-        return;
-      }
-
-      if (error.response?.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
-        onLogout();
-        return;
-      }
-
-      alert("No se pudo cargar el historial de pagos.");
-    } finally {
-      setPaymentHistoryLoading(false);
-    }
-  };
-
-  const openPaymentHistory = async (customerId) => {
-    const cleanCustomerId = String(customerId || "").trim();
-
-    if (!cleanCustomerId) return;
-
-    setSection("paymentHistory");
-    setPaymentHistoryCustomerId(cleanCustomerId);
-    await loadPaymentHistory(cleanCustomerId);
-  };
-
-
-  const loadCustomerFinance = async () => {
-    try {
-      if (!canViewCustomerFinance) return;
-
-      setCustomerFinanceLoading(true);
-
-      const res = await axios.get(
-        `${API}/customers/financial-summary`,
-        getAuthHeaders()
-      );
-
-      setCustomerFinanceData(res.data);
-    } catch (error) {
-      console.error("Error cargando estado financiero de clientes:", error);
-
-      if (error.response?.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
-        onLogout();
-        return;
-      }
-
-      alert("No se pudo cargar el estado financiero de clientes.");
-    } finally {
-      setCustomerFinanceLoading(false);
-    }
-  };
-
-  const openCustomerFinance = async () => {
-    setSection("customerFinance");
-    await loadCustomerFinance();
-  };
 
   const loadData = async () => {
     try {
@@ -263,18 +153,36 @@ function Dashboard({ onLogout }) {
       if (canViewTickets) {
         const res = await axios.get(`${API}/tickets`, headers);
         setTickets(Array.isArray(res.data) ? res.data : []);
-
-        if (!canViewInvoices) {
-          const customersRes = await axios.get(`${API}/customers`, headers);
-          setCustomers(
-            Array.isArray(customersRes.data) ? customersRes.data : []
-          );
-        }
       }
 
       if (canViewInstallations) {
-        const res = await axios.get(`${API}/installations`, headers);
-        setInstallations(Array.isArray(res.data) ? res.data : []);
+        const [installationsRes, routersRes, plansRes] = await Promise.all([
+          axios.get(`${API}/installations`, headers),
+          axios.get(`${API}/routers`, headers).catch(() => ({ data: [] })),
+          axios.get(`${API}/plans`, headers).catch(() => ({ data: [] })),
+        ]);
+
+        const routersData = Array.isArray(routersRes.data)
+          ? routersRes.data
+          : Array.isArray(routersRes.data?.value)
+          ? routersRes.data.value
+          : Array.isArray(routersRes.data?.routers)
+          ? routersRes.data.routers
+          : [];
+
+        const plansData = Array.isArray(plansRes.data)
+          ? plansRes.data
+          : Array.isArray(plansRes.data?.value)
+          ? plansRes.data.value
+          : Array.isArray(plansRes.data?.plans)
+          ? plansRes.data.plans
+          : [];
+
+        setInstallations(
+          Array.isArray(installationsRes.data) ? installationsRes.data : []
+        );
+        setInstallationRouters(routersData);
+        setInstallationPlans(plansData);
       }
 
       if (canViewStats) {
@@ -313,89 +221,25 @@ function Dashboard({ onLogout }) {
   };
 
   useEffect(() => {
-    let ws = null;
-    let reconnectTimer = null;
-    let closedByReact = false;
-
-    const getDashboardWsUrl = () => {
-      const baseUrl = API || "http://127.0.0.1:8000";
-
-      return (
-        baseUrl
-          .replace("https://", "wss://")
-          .replace("http://", "ws://") + "/ws/dashboard"
-      );
-    };
-
-    const connectDashboardWs = () => {
-      try {
-        ws = new WebSocket(getDashboardWsUrl());
-
-        ws.onopen = () => {
-          console.log("Dashboard realtime conectado");
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            setStats(JSON.parse(event.data));
-          } catch (error) {
-            console.error("Error leyendo datos realtime:", error);
-          }
-        };
-
-        ws.onerror = () => {
-          console.warn("Dashboard realtime no disponible");
-        };
-
-        ws.onclose = () => {
-          if (!closedByReact) {
-            reconnectTimer = setTimeout(() => {
-              connectDashboardWs();
-            }, 5000);
-          }
-        };
-      } catch (error) {
-        console.warn("No se pudo iniciar WebSocket dashboard:", error);
-      }
-    };
-
     loadData();
     loadCutStatus();
-    connectDashboardWs();
 
     const interval = setInterval(() => {
       loadData();
       loadCutStatus();
     }, 15000);
 
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws/dashboard");
+
+    ws.onmessage = (event) => {
+      setStats(JSON.parse(event.data));
+    };
+
     return () => {
-      closedByReact = true;
-
       clearInterval(interval);
-
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-
-      if (ws) {
-        ws.close();
-      }
+      ws.close();
     };
   }, []);
-
-
-  useEffect(() => {
-    if (section === "cashbox") {
-      loadCashbox(cashboxDate);
-    }
-  }, [section, cashboxDate]);
-
-
-  useEffect(() => {
-    if (section === "customerFinance" && !customerFinanceData) {
-      loadCustomerFinance();
-    }
-  }, [section]);
 
   const createInvoice = async (e) => {
     e.preventDefault();
@@ -420,40 +264,8 @@ function Dashboard({ onLogout }) {
   };
 
   const payInvoice = async (id) => {
-    const paymentMethod = window.prompt(
-      "Método de pago: Efectivo, Transferencia, Mercado Pago u Otro",
-      "Efectivo"
-    );
-
-    if (paymentMethod === null) return;
-
-    const paymentNote = window.prompt("Observación del pago:", "");
-
-    if (paymentNote === null) return;
-
-    const ok = window.confirm(
-      `¿Marcar factura #${id} como pagada?
-
-Método: ${
-        paymentMethod || "Efectivo"
-      }
-Nota: ${paymentNote || "-"}`
-    );
-
-    if (!ok) return;
-
-    await axios.put(
-      `${API}/invoices/${id}/pay`,
-      {
-        payment_method: paymentMethod || "Efectivo",
-        payment_note: paymentNote || "",
-      },
-      getAuthHeaders()
-    );
-
+    await axios.put(`${API}/invoices/${id}/pay`, {}, getAuthHeaders());
     await loadData();
-
-    alert("Factura marcada como pagada.");
   };
 
   const exportInvoicesExcel = async (status = "") => {
@@ -531,38 +343,6 @@ Nota: ${paymentNote || "-"}`
     } catch (error) {
       console.error("Error exportando PDF:", error);
       alert("No se pudo exportar el PDF.");
-    }
-  };
-
-
-  const exportInvoiceReceiptPdf = async (invoiceId) => {
-    try {
-      const res = await axios.get(
-        `${API}/invoices/${invoiceId}/receipt-pdf`,
-        {
-          ...getAuthHeaders(),
-          responseType: "blob",
-        }
-      );
-
-      const blob = new Blob([res.data], {
-        type: "application/pdf",
-      });
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = `recibo_factura_${invoiceId}.pdf`;
-
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      window.URL.revokeObjectURL(downloadUrl);
-    } catch (error) {
-      console.error("Error descargando recibo:", error);
-      alert("No se pudo descargar el recibo.");
     }
   };
 
@@ -716,8 +496,6 @@ Nota: ${paymentNote || "-"}`
         customer_id: Number(ticketForm.customer_id),
         title: ticketForm.title,
         description: ticketForm.description,
-        priority: ticketForm.priority || "medium",
-        assigned_technician: ticketForm.assigned_technician || "",
       },
       getAuthHeaders()
     );
@@ -726,17 +504,8 @@ Nota: ${paymentNote || "-"}`
       customer_id: "",
       title: "",
       description: "",
-      priority: "medium",
-      assigned_technician: "",
     });
 
-    setTicketCustomerSearch("");
-
-    await loadData();
-  };
-
-  const startTicket = async (id) => {
-    await axios.put(`${API}/tickets/${id}/start`, {}, getAuthHeaders());
     await loadData();
   };
 
@@ -745,42 +514,328 @@ Nota: ${paymentNote || "-"}`
     await loadData();
   };
 
-  const createInstallation = async (e) => {
-    e.preventDefault();
+  const updateInstallationForm = (field, value) => {
+    setInstallationForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
 
-    await axios.post(
-      `${API}/installations`,
-      {
-        customer_id: Number(installationForm.customer_id),
-        technician: installationForm.technician,
-        scheduled_date: installationForm.scheduled_date,
-        address: installationForm.address,
-        installation_type: installationForm.installation_type,
-        notes: installationForm.notes,
-      },
-      getAuthHeaders()
+  const getPlanText = (plan) => {
+    return `${plan?.name || ""} ${plan?.plan_name || ""} ${
+      plan?.nombre || ""
+    }`.trim();
+  };
+
+  const getSuggestedPoolName = (planId = installationForm.plan_id) => {
+    const selectedPlan = installationPlans.find(
+      (plan) => Number(plan.id) === Number(planId)
     );
 
+    const planText = getPlanText(selectedPlan);
+    const speedMatch = planText.match(/(\d+)\s*M/i);
+    const speed = speedMatch ? speedMatch[1] : "";
+
+    return speed ? `Pool-${speed}M` : "";
+  };
+
+  const loadMikrotikPools = async (routerId) => {
+    try {
+      if (!routerId) {
+        setMikrotikPools([]);
+        setSelectedPoolName("");
+        return;
+      }
+
+      const res = await axios.get(
+        `${API}/installations/mikrotik-pools?router_id=${routerId}`,
+        getAuthHeaders()
+      );
+
+      const pools = Array.isArray(res.data?.pools) ? res.data.pools : [];
+
+      setMikrotikPools(pools);
+
+      const suggested = getSuggestedPoolName();
+      const matchingPool = suggested
+        ? pools.find(
+            (pool) =>
+              String(pool.name || "").toLowerCase() === suggested.toLowerCase()
+          )
+        : null;
+
+      if (matchingPool) {
+        setSelectedPoolName(matchingPool.name);
+      } else if (pools.length > 0) {
+        setSelectedPoolName(pools[0].name);
+      } else {
+        setSelectedPoolName("");
+      }
+
+      setAvailableIps([]);
+    } catch (error) {
+      console.error("Error cargando pools MikroTik:", error);
+      alert("No se pudieron cargar los pools del router seleccionado.");
+    }
+  };
+
+  const loadAvailableIps = async () => {
+    try {
+      if (!installationForm.router_id) {
+        alert("Seleccioná primero el router MikroTik.");
+        return;
+      }
+
+      let poolName = selectedPoolName || getSuggestedPoolName();
+
+      if (!poolName) {
+        alert("Seleccioná un pool o un plan para buscar IPs libres.");
+        return;
+      }
+
+      setAvailableIpsLoading(true);
+
+      const res = await axios.get(
+        `${API}/installations/remote-address-pool/available?router_id=${
+          installationForm.router_id
+        }&pool_name=${encodeURIComponent(poolName)}&limit=5000`,
+        getAuthHeaders()
+      );
+
+      const ips = Array.isArray(res.data?.available_ips)
+        ? res.data.available_ips
+        : [];
+
+      setSelectedPoolName(res.data?.pool_name || poolName);
+      setAvailableIps(ips);
+
+      if (ips.length > 0 && !installationForm.remote_address) {
+        updateInstallationForm("remote_address", ips[0]);
+      }
+
+      if (ips.length === 0) {
+        alert(res.data?.message || "No se encontraron IPs libres.");
+      }
+    } catch (error) {
+      console.error("Error buscando IPs disponibles:", error);
+      alert("No se pudieron buscar IPs disponibles.");
+    } finally {
+      setAvailableIpsLoading(false);
+    }
+  };
+
+  const buildInstallationNotes = () => {
+    const parts = [];
+
+    if (installationForm.customer_dni) {
+      parts.push(`DNI/C.I./C.C.: ${installationForm.customer_dni}`);
+    }
+
+    if (installationForm.customer_email) {
+      parts.push(`Email: ${installationForm.customer_email}`);
+    }
+
+    if (installationForm.customer_email_cc) {
+      parts.push(`Emails C.C.: ${installationForm.customer_email_cc}`);
+    }
+
+    if (installationForm.customer_external_id) {
+      parts.push(`External ID: ${installationForm.customer_external_id}`);
+    }
+
+    if (installationForm.customer_coordinates) {
+      parts.push(`Coordenadas: ${installationForm.customer_coordinates}`);
+    }
+
+    if (installationForm.customer_city) {
+      parts.push(`Ciudad/Municipio: ${installationForm.customer_city}`);
+    }
+
+    if (installationForm.contract_type) {
+      parts.push(`Forma de contratación: ${installationForm.contract_type}`);
+    }
+
+    if (installationForm.installation_cost) {
+      parts.push(`Costo instalación: ${installationForm.installation_cost}`);
+    }
+
+    if (installationForm.mac_cpe) {
+      parts.push(`MAC CPE: ${installationForm.mac_cpe}`);
+    }
+
+    if (installationForm.local_address_pppoe) {
+      parts.push(`Local Address PPPoE: ${installationForm.local_address_pppoe}`);
+    }
+
+    if (installationForm.client_zone) {
+      parts.push(`Zona cliente: ${installationForm.client_zone}`);
+    }
+
+    if (installationForm.installation_status) {
+      parts.push(`Estado instalación inicial: ${installationForm.installation_status}`);
+    }
+
+    if (installationForm.sector_node_nap) {
+      parts.push(`Sectorial/Nodo/NAP: ${installationForm.sector_node_nap}`);
+    }
+
+    if (installationForm.comments) {
+      parts.push(`Comentarios: ${installationForm.comments}`);
+    }
+
+    if (installationForm.notes) {
+      parts.push(`Notas internas: ${installationForm.notes}`);
+    }
+
+    return parts.join("\\n");
+  };
+
+  const resetInstallationForm = () => {
     setInstallationForm({
-      customer_id: "",
+      customer_name: "",
+      customer_last_name: "",
+      customer_dni: "",
+      customer_email: "",
+      customer_email_cc: "",
+      customer_phone: "",
+      customer_zone: "",
+      customer_city: "",
+      customer_address: "",
+      customer_external_id: "",
+      customer_coordinates: "",
+      contract_type: "",
+      installation_cost: "",
+      comments: "",
+      pppoe_username: "",
+      pppoe_password: "",
+      remote_address: "",
+      mac_cpe: "",
+      local_address_pppoe: "",
+      router_id: "",
+      client_zone: "",
+      plan_id: "",
       technician: "",
       scheduled_date: "",
-      address: "",
+      installation_status: "Nueva",
+      sector_node_nap: "",
       installation_type: "",
       notes: "",
     });
 
-    await loadData();
+    setSelectedPoolName("");
+    setMikrotikPools([]);
+    setAvailableIps([]);
+  };
+
+  const createInstallation = async (e) => {
+    e.preventDefault();
+
+    try {
+      if (!installationForm.customer_name) {
+        alert("Ingresá el nombre del cliente.");
+        return;
+      }
+
+      if (!installationForm.pppoe_username) {
+        alert("Ingresá el Nombre Secret PPPoE.");
+        return;
+      }
+
+      if (!installationForm.pppoe_password) {
+        alert("Ingresá el Password PPPoE.");
+        return;
+      }
+
+      if (!installationForm.remote_address) {
+        alert("Seleccioná o ingresá el Remote Address PPPoE.");
+        return;
+      }
+
+      await axios.post(
+        `${API}/installations/create-with-customer`,
+        {
+          customer: {
+            name: installationForm.customer_name,
+            last_name: installationForm.customer_last_name,
+            phone: installationForm.customer_phone,
+            zone: installationForm.customer_zone || installationForm.client_zone,
+            address: installationForm.customer_address,
+            pppoe_username: installationForm.pppoe_username,
+            pppoe_password: installationForm.pppoe_password,
+            remote_address: installationForm.remote_address,
+            plan_id: installationForm.plan_id
+              ? Number(installationForm.plan_id)
+              : null,
+            router_id: installationForm.router_id
+              ? Number(installationForm.router_id)
+              : null,
+            status: "pending_installation",
+          },
+          installation: {
+            router_id: installationForm.router_id
+              ? Number(installationForm.router_id)
+              : null,
+            technician: installationForm.technician,
+            scheduled_date: installationForm.scheduled_date,
+            address: installationForm.customer_address,
+            installation_type: installationForm.installation_type,
+            notes: buildInstallationNotes(),
+          },
+        },
+        getAuthHeaders()
+      );
+
+      resetInstallationForm();
+      setShowNewInstallationForm(false);
+      await loadData();
+
+      alert("Instalación guardada correctamente.");
+    } catch (error) {
+      console.error("Error guardando instalación:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo guardar la instalación.\\n\\n${detail}`);
+    }
   };
 
   const completeInstallation = async (id) => {
-    await axios.put(
-      `${API}/installations/${id}/complete`,
-      {},
-      getAuthHeaders()
-    );
+    try {
+      const res = await axios.put(
+        `${API}/installations/${id}/complete`,
+        {},
+        getAuthHeaders()
+      );
 
-    await loadData();
+      await loadData();
+
+      const mikrotikStatus = res.data?.mikrotik?.status || "-";
+      const mikrotikMessage = res.data?.mikrotik?.message || "-";
+
+      alert(
+        `Instalación completada.
+
+Cliente: activo
+MikroTik: ${mikrotikStatus}
+${mikrotikMessage}`
+      );
+    } catch (error) {
+      console.error("Error completando instalación:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo completar la instalación.
+
+${detail}`);
+    }
   };
 
   const cancelInstallation = async (id) => {
@@ -841,120 +896,10 @@ Nota: ${paymentNote || "-"}`
     0
   );
 
-  const paidReceiptInvoices = filteredInvoices.filter(
-    (invoice) => invoice.status === "paid"
-  );
-
-
-  const customerFinanceCustomers = customerFinanceData?.customers || [];
-
-  const filteredCustomerFinanceCustomers = customerFinanceCustomers.filter(
-    (customer) => {
-      const text = `
-        ${customer.id || ""}
-        ${customer.name || ""}
-        ${customer.first_name || ""}
-        ${customer.last_name || ""}
-        ${customer.pppoe_username || ""}
-        ${customer.ip || ""}
-        ${customer.phone || ""}
-        ${customer.zone || ""}
-        ${customer.status || ""}
-        ${customer.account_status || ""}
-      `.toLowerCase();
-
-      const matchesSearch = text.includes(customerFinanceSearch.toLowerCase());
-
-      const matchesStatus = customerFinanceStatusFilter
-        ? customer.account_status === customerFinanceStatusFilter
-        : true;
-
-      return matchesSearch && matchesStatus;
-    }
-  );
-
-  const customerFinanceTotalDebt = customerFinanceCustomers.reduce(
-    (sum, customer) => sum + Number(customer.total_pending || 0),
-    0
-  );
-
-  const customerFinanceTotalPaid = customerFinanceCustomers.reduce(
-    (sum, customer) => sum + Number(customer.total_paid || 0),
-    0
-  );
-
-  const customerFinanceWithDebt = customerFinanceCustomers.filter(
-    (customer) => customer.account_status === "debt"
-  );
-
-  const customerFinanceUpToDate = customerFinanceCustomers.filter(
-    (customer) => customer.account_status === "up_to_date"
-  );
-
-
-
-  const getCustomerFullName = (customer) => {
-    if (!customer) return "";
-
-    return `${customer.name || ""} ${customer.last_name || ""}`.trim();
-  };
-
-  const selectedTicketCustomer = customers.find(
-    (customer) => Number(customer.id) === Number(ticketForm.customer_id)
-  );
-
-  const filteredTicketCustomerOptions = customers
-    .filter((customer) => {
-      const text = `
-        ${customer.id || ""}
-        ${customer.name || ""}
-        ${customer.last_name || ""}
-        ${customer.pppoe_username || ""}
-        ${customer.remote_address || ""}
-        ${customer.phone || ""}
-        ${customer.zone || ""}
-      `.toLowerCase();
-
-      return text.includes(ticketCustomerSearch.toLowerCase());
-    })
-    .slice(0, 8);
-
-  const filteredTickets = tickets.filter((ticket) => {
-    const text = `
-      ${ticket.id || ""}
-      ${ticket.customer_id || ""}
-      ${ticket.customer_name || ""}
-      ${ticket.customer_pppoe_username || ""}
-      ${ticket.customer_ip || ""}
-      ${ticket.customer_phone || ""}
-      ${ticket.customer_zone || ""}
-      ${ticket.title || ""}
-      ${ticket.description || ""}
-      ${ticket.status || ""}
-      ${ticket.priority || ""}
-      ${ticket.assigned_technician || ""}
-    `.toLowerCase();
-
-    const matchesSearch = text.includes(ticketSearch.toLowerCase());
-
-    const matchesStatus = ticketStatusFilter
-      ? ticket.status === ticketStatusFilter
-      : true;
-
-    const matchesPriority = ticketPriorityFilter
-      ? ticket.priority === ticketPriorityFilter
-      : true;
-
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
-
-  const openTickets = tickets.filter((ticket) => ticket.status === "open");
-  const inProgressTickets = tickets.filter(
-    (ticket) => ticket.status === "in_progress"
-  );
-  const closedTickets = tickets.filter((ticket) => ticket.status === "closed");
-  const highPriorityTickets = tickets.filter(
-    (ticket) => ticket.priority === "high"
+  const visibleInstallations = installations.filter(
+    (installation) =>
+      installation.status !== "completed" &&
+      installation.status !== "cancelled"
   );
 
   const networkData = [
@@ -992,15 +937,6 @@ Nota: ${paymentNote || "-"}`
             />
           )}
 
-          {canViewCustomerFinance && (
-            <SidebarButton
-              icon="💰"
-              label="Estado clientes"
-              active={section === "customerFinance"}
-              onClick={openCustomerFinance}
-            />
-          )}
-
           {canViewOnline && (
             <SidebarButton
               icon="📶"
@@ -1034,24 +970,6 @@ Nota: ${paymentNote || "-"}`
               label="Facturas"
               active={section === "invoices"}
               onClick={() => setSection("invoices")}
-            />
-          )}
-
-          {canViewCashbox && (
-            <SidebarButton
-              icon="💵"
-              label="Caja diaria"
-              active={section === "cashbox"}
-              onClick={() => setSection("cashbox")}
-            />
-          )}
-
-          {canViewPaymentHistory && (
-            <SidebarButton
-              icon="📜"
-              label="Historial pagos"
-              active={section === "paymentHistory"}
-              onClick={() => setSection("paymentHistory")}
             />
           )}
 
@@ -1120,180 +1038,6 @@ Nota: ${paymentNote || "-"}`
         )}
 
         {section === "customers" && canViewCustomers && <CustomerManager />}
-
-
-        {section === "customerFinance" && canViewCustomerFinance && (
-          <Module title="Estado financiero de clientes">
-            <Panel title="Resumen general">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <StatBox
-                  title="Clientes"
-                  value={customerFinanceData?.total_customers || 0}
-                  color="text-blue-600"
-                />
-
-                <StatBox
-                  title="Al día"
-                  value={customerFinanceUpToDate.length}
-                  color="text-green-600"
-                />
-
-                <StatBox
-                  title="Con deuda"
-                  value={customerFinanceWithDebt.length}
-                  color="text-red-600"
-                />
-
-                <StatBox
-                  title="Total deuda"
-                  value={`$${customerFinanceTotalDebt}`}
-                  color="text-red-600"
-                />
-
-                <StatBox
-                  title="Total pagado"
-                  value={`$${customerFinanceTotalPaid}`}
-                  color="text-green-600"
-                />
-              </div>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={loadCustomerFinance}
-                  disabled={customerFinanceLoading}
-                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
-                >
-                  {customerFinanceLoading ? "Actualizando..." : "Actualizar"}
-                </button>
-              </div>
-            </Panel>
-
-            <Panel title="Buscar y filtrar clientes">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
-                  placeholder="Buscar por nombre, usuario PPPoE, IP, teléfono, zona o ID..."
-                  value={customerFinanceSearch}
-                  onChange={(e) => setCustomerFinanceSearch(e.target.value)}
-                />
-
-                <select
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                  value={customerFinanceStatusFilter}
-                  onChange={(e) =>
-                    setCustomerFinanceStatusFilter(e.target.value)
-                  }
-                >
-                  <option value="">Todos</option>
-                  <option value="debt">Con deuda</option>
-                  <option value="up_to_date">Al día</option>
-                </select>
-              </div>
-            </Panel>
-
-            <Panel title="Clientes">
-              {!filteredCustomerFinanceCustomers.length && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
-                  No hay clientes para mostrar con el filtro actual.
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {filteredCustomerFinanceCustomers.map((customer) => (
-                  <div
-                    key={customer.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-slate-950">
-                          {customer.name || `Cliente ID ${customer.id}`}
-                        </h3>
-
-                        <p className="text-sm text-slate-500">
-                          ID {customer.id} · Usuario:{" "}
-                          {customer.pppoe_username || "-"} · IP:{" "}
-                          {customer.ip || "-"}
-                        </p>
-                      </div>
-
-                      <span
-                        className={`rounded-lg px-3 py-1 text-xs font-bold ${
-                          customer.account_status === "debt"
-                            ? "bg-red-600 text-white"
-                            : "bg-green-600 text-white"
-                        }`}
-                      >
-                        {customer.account_status === "debt"
-                          ? "DEBE"
-                          : "AL DÍA"}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Deuda</p>
-                        <p className="text-lg font-bold text-red-600">
-                          ${customer.total_pending || 0}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Pagado</p>
-                        <p className="text-lg font-bold text-green-600">
-                          ${customer.total_paid || 0}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Facturado</p>
-                        <p className="text-lg font-bold text-blue-600">
-                          ${customer.total_billed || 0}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Pendientes</p>
-                        <p className="text-lg font-bold text-orange-500">
-                          {customer.pending_invoices || 0}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Pagadas</p>
-                        <p className="text-lg font-bold text-green-600">
-                          {customer.paid_invoices || 0}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <p className="text-xs text-slate-500">Total facturas</p>
-                        <p className="text-lg font-bold text-slate-950">
-                          {customer.total_invoices || 0}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => openPaymentHistory(customer.id)}
-                        className="rounded-xl bg-slate-800 px-4 py-2 font-bold text-white hover:bg-slate-700"
-                      >
-                        Ver historial de pagos
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </Module>
-        )}
-
-
 
         {section === "online" && canViewOnline && <OnlineClients />}
 
@@ -1618,54 +1362,6 @@ Nota: ${paymentNote || "-"}`
               </div>
             </Panel>
 
-
-            <Panel title="Recibos individuales de facturas pagadas">
-              <p className="text-slate-600 mb-4">
-                Seleccioná una factura pagada para descargar solo ese recibo con logo y datos de la empresa.
-              </p>
-
-              {paidReceiptInvoices.length === 0 && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
-                  No hay facturas pagadas para mostrar con el filtro actual.
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {paidReceiptInvoices.map((invoice) => {
-                  const customer = getInvoiceCustomer(invoice.customer_id);
-
-                  return (
-                    <div
-                      key={`receipt-${invoice.id}`}
-                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                    >
-                      <p className="font-bold text-slate-900">
-                        {customer
-                          ? `${customer.name} ${customer.last_name || ""}`
-                          : `Cliente ID ${invoice.customer_id}`}
-                      </p>
-
-                      <p className="text-sm text-slate-500">
-                        Factura #{invoice.id} · ${invoice.amount}
-                      </p>
-
-                      <p className="text-sm text-slate-500">
-                        Usuario: {customer?.pppoe_username || "-"}
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => exportInvoiceReceiptPdf(invoice.id)}
-                        className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
-                      >
-                        Descargar recibo
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-
             <GridList
               items={filteredInvoices}
               render={(invoice) => {
@@ -1697,16 +1393,6 @@ Nota: ${paymentNote || "-"}`
                       <b>Zona:</b> {customer?.zone || "-"}
                     </p>
 
-                    {canViewPaymentHistory && (
-                      <button
-                        type="button"
-                        onClick={() => openPaymentHistory(invoice.customer_id)}
-                        className="rounded-xl bg-slate-700 px-4 py-2 font-bold text-white hover:bg-slate-600 mt-3"
-                      >
-                        Ver historial de pagos
-                      </button>
-                    )}
-
                     <p>
                       <b>Monto:</b> ${invoice.amount}
                     </p>
@@ -1728,43 +1414,12 @@ Nota: ${paymentNote || "-"}`
                       </span>
                     </p>
 
-
-                    {invoice.status === "paid" && (
-                      <>
-                        <p>
-                          <b>Fecha de pago:</b>{" "}
-                          {invoice.paid_at
-                            ? new Date(invoice.paid_at).toLocaleString()
-                            : "-"}
-                        </p>
-
-                        <p>
-                          <b>Método de pago:</b>{" "}
-                          {invoice.payment_method || "-"}
-                        </p>
-
-                        <p>
-                          <b>Observación:</b>{" "}
-                          {invoice.payment_note || "-"}
-                        </p>
-                      </>
-                    )}
-
                     {invoice.status === "pending" && canManageInvoices && (
                       <button
                         className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
                         onClick={() => payInvoice(invoice.id)}
                       >
                         Marcar pagada
-                      </button>
-                    )}
-
-                    {invoice.status === "paid" && canManageInvoices && (
-                      <button
-                        className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500 mt-3"
-                        onClick={() => exportInvoiceReceiptPdf(invoice.id)}
-                      >
-                        Descargar recibo
                       </button>
                     )}
                   </Panel>
@@ -1774,737 +1429,70 @@ Nota: ${paymentNote || "-"}`
           </Module>
         )}
 
-
-
-        {section === "paymentHistory" && canViewPaymentHistory && (
-          <Module title="Historial de pagos por cliente">
-            <Panel title="Buscar cliente">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    ID del cliente
-                  </label>
-
-                  <input
-                    type="number"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                    placeholder="Ej: 875"
-                    value={paymentHistoryCustomerId}
-                    onChange={(e) => setPaymentHistoryCustomerId(e.target.value)}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => loadPaymentHistory(paymentHistoryCustomerId)}
-                  disabled={paymentHistoryLoading}
-                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
-                >
-                  {paymentHistoryLoading ? "Buscando..." : "Ver historial"}
-                </button>
-              </div>
-            </Panel>
-
-            {paymentHistoryData?.customer && (
-              <Panel title="Datos del cliente">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-slate-500 text-sm">Cliente</p>
-                    <h3 className="text-xl font-bold text-slate-950">
-                      {paymentHistoryData.customer.name || "-"}
-                    </h3>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500 text-sm">Usuario PPPoE</p>
-                    <h3 className="text-xl font-bold text-blue-600">
-                      {paymentHistoryData.customer.pppoe_username || "-"}
-                    </h3>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500 text-sm">IP</p>
-                    <h3 className="text-xl font-bold text-slate-950">
-                      {paymentHistoryData.customer.ip || "-"}
-                    </h3>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500 text-sm">Teléfono</p>
-                    <h3 className="text-xl font-bold text-slate-950">
-                      {paymentHistoryData.customer.phone || "-"}
-                    </h3>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500 text-sm">Zona</p>
-                    <h3 className="text-xl font-bold text-slate-950">
-                      {paymentHistoryData.customer.zone || "-"}
-                    </h3>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500 text-sm">Estado</p>
-                    <h3 className="text-xl font-bold text-green-600">
-                      {paymentHistoryData.customer.status || "-"}
-                    </h3>
-                  </div>
-                </div>
-              </Panel>
-            )}
-
-            {paymentHistoryData?.summary && (
-              <Panel title="Resumen del cliente">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                  <StatBox
-                    title="Facturas"
-                    value={paymentHistoryData.summary.total_invoices || 0}
-                  />
-
-                  <StatBox
-                    title="Pagadas"
-                    value={paymentHistoryData.summary.paid_invoices || 0}
-                    color="text-green-600"
-                  />
-
-                  <StatBox
-                    title="Pendientes"
-                    value={paymentHistoryData.summary.pending_invoices || 0}
-                    color="text-orange-500"
-                  />
-
-                  <StatBox
-                    title="Facturado"
-                    value={`$${paymentHistoryData.summary.total_billed || 0}`}
-                    color="text-blue-600"
-                  />
-
-                  <StatBox
-                    title="Pagado"
-                    value={`$${paymentHistoryData.summary.total_paid || 0}`}
-                    color="text-green-600"
-                  />
-
-                  <StatBox
-                    title="Debe"
-                    value={`$${paymentHistoryData.summary.total_pending || 0}`}
-                    color="text-red-600"
-                  />
-                </div>
-              </Panel>
-            )}
-
-            {paymentHistoryData?.invoices && (
-              <Panel title="Facturas del cliente">
-                {!paymentHistoryData.invoices.length && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
-                    Este cliente todavía no tiene facturas.
-                  </div>
-                )}
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border border-slate-200 rounded-xl overflow-hidden">
-                    <thead className="bg-slate-100">
-                      <tr>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Factura
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Monto
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Vence
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Estado
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Fecha pago
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Método
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Observación
-                        </th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                          Recibo
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {paymentHistoryData.invoices.map((invoice) => (
-                        <tr
-                          key={invoice.invoice_id}
-                          className="border-t border-slate-200"
-                        >
-                          <td className="px-3 py-3 text-sm font-bold text-slate-900">
-                            #{invoice.invoice_id}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm font-bold text-green-600">
-                            ${invoice.amount || 0}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm text-slate-700">
-                            {invoice.due_date || "-"}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm">
-                            <span
-                              className={`rounded-md px-3 py-1 text-xs font-bold ${
-                                invoice.status === "paid"
-                                  ? "bg-green-500 text-white"
-                                  : "bg-orange-500 text-white"
-                              }`}
-                            >
-                              {invoice.status === "paid"
-                                ? "Pagada"
-                                : "Pendiente"}
-                            </span>
-                          </td>
-
-                          <td className="px-3 py-3 text-sm text-slate-700">
-                            {invoice.paid_at || "-"}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm text-slate-700">
-                            {invoice.payment_method || "-"}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm text-slate-700">
-                            {invoice.payment_note || "-"}
-                          </td>
-
-                          <td className="px-3 py-3 text-sm">
-                            {invoice.status === "paid" ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  exportInvoiceReceiptPdf(invoice.invoice_id)
-                                }
-                                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500"
-                              >
-                                Descargar
-                              </button>
-                            ) : (
-                              "-"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Panel>
-            )}
-          </Module>
-        )}
-
-        {section === "cashbox" && canViewCashbox && (
-          <Module title="Caja diaria">
-            <Panel title="Filtro de caja">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    Fecha
-                  </label>
-
-                  <input
-                    type="date"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                    value={cashboxDate}
-                    onChange={(e) => setCashboxDate(e.target.value)}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => loadCashbox(cashboxDate)}
-                  disabled={cashboxLoading}
-                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
-                >
-                  {cashboxLoading ? "Cargando..." : "Actualizar caja"}
-                </button>
-              </div>
-            </Panel>
-
-            <Panel title="Resumen de cobranza">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatBox
-                  title="Fecha"
-                  value={cashboxData?.date || cashboxDate}
-                  color="text-blue-600"
-                />
-
-                <StatBox
-                  title="Pagos"
-                  value={cashboxData?.total_payments || 0}
-                  color="text-slate-950"
-                />
-
-                <StatBox
-                  title="Total cobrado"
-                  value={`$${cashboxData?.total_amount || 0}`}
-                  color="text-green-600"
-                />
-
-                <StatBox
-                  title="Métodos"
-                  value={cashboxData?.by_method?.length || 0}
-                  color="text-purple-600"
-                />
-              </div>
-            </Panel>
-
-            <Panel title="Cobrado por método de pago">
-              {!cashboxData?.by_method?.length && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
-                  No hay pagos para esta fecha.
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {(cashboxData?.by_method || []).map((method) => (
-                  <div
-                    key={method.payment_method}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
-                    <p className="text-slate-500 text-sm">
-                      {method.payment_method}
-                    </p>
-
-                    <h3 className="text-2xl font-bold text-green-600">
-                      ${method.total}
-                    </h3>
-
-                    <p className="text-sm text-slate-500">
-                      {method.count} pago(s)
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-
-            <Panel title="Listado de cobros del día">
-              {!cashboxData?.payments?.length && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
-                  Todavía no hay cobros registrados en esta fecha.
-                </div>
-              )}
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full border border-slate-200 rounded-xl overflow-hidden">
-                  <thead className="bg-slate-100">
-                    <tr>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Hora
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Factura
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Cliente
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Usuario
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Método
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Monto
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Observación
-                      </th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
-                        Recibo
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {(cashboxData?.payments || []).map((payment) => (
-                      <tr
-                        key={payment.invoice_id}
-                        className="border-t border-slate-200"
-                      >
-                        <td className="px-3 py-3 text-sm text-slate-700">
-                          {payment.paid_at || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm font-bold text-slate-900">
-                          #{payment.invoice_id}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm text-slate-700">
-                          {payment.customer_name || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm text-slate-700">
-                          {payment.pppoe_username || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm text-slate-700">
-                          {payment.payment_method || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm font-bold text-green-600">
-                          ${payment.amount || 0}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm text-slate-700">
-                          {payment.payment_note || "-"}
-                        </td>
-
-                        <td className="px-3 py-3 text-sm">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              exportInvoiceReceiptPdf(payment.invoice_id)
-                            }
-                            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500"
-                          >
-                            Descargar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-          </Module>
-        )}
-
         {section === "tickets" && (
-          <Module title="Tickets / Soporte">
-            <Panel title="Resumen de soporte">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <StatBox title="Total tickets" value={tickets.length} />
-
-                <StatBox
-                  title="Abiertos"
-                  value={openTickets.length}
-                  color="text-orange-500"
+          <Module title="Tickets">
+            <Panel title="Crear ticket">
+              <form onSubmit={createTicket} className="grid grid-cols-1 gap-4">
+                <Input
+                  type="number"
+                  placeholder="Cliente ID"
+                  value={ticketForm.customer_id}
+                  onChange={(e) =>
+                    setTicketForm({
+                      ...ticketForm,
+                      customer_id: e.target.value,
+                    })
+                  }
                 />
 
-                <StatBox
-                  title="En proceso"
-                  value={inProgressTickets.length}
-                  color="text-blue-600"
+                <Input
+                  placeholder="Título"
+                  value={ticketForm.title}
+                  onChange={(e) =>
+                    setTicketForm({
+                      ...ticketForm,
+                      title: e.target.value,
+                    })
+                  }
                 />
 
-                <StatBox
-                  title="Cerrados"
-                  value={closedTickets.length}
-                  color="text-green-600"
+                <textarea
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28"
+                  placeholder="Descripción"
+                  value={ticketForm.description}
+                  onChange={(e) =>
+                    setTicketForm({
+                      ...ticketForm,
+                      description: e.target.value,
+                    })
+                  }
                 />
 
-                <StatBox
-                  title="Alta prioridad"
-                  value={highPriorityTickets.length}
-                  color="text-red-600"
-                />
-              </div>
+                <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500">
+                  Guardar ticket
+                </button>
+              </form>
             </Panel>
-
-            <Panel title="Buscar y filtrar tickets">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <input
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
-                  placeholder="Buscar por cliente, PPPoE, IP, técnico, título o descripción..."
-                  value={ticketSearch}
-                  onChange={(e) => setTicketSearch(e.target.value)}
-                />
-
-                <select
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                  value={ticketStatusFilter}
-                  onChange={(e) => setTicketStatusFilter(e.target.value)}
-                >
-                  <option value="">Todos los estados</option>
-                  <option value="open">Abiertos</option>
-                  <option value="in_progress">En proceso</option>
-                  <option value="closed">Cerrados</option>
-                </select>
-
-                <select
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                  value={ticketPriorityFilter}
-                  onChange={(e) => setTicketPriorityFilter(e.target.value)}
-                >
-                  <option value="">Todas las prioridades</option>
-                  <option value="low">Baja</option>
-                  <option value="medium">Media</option>
-                  <option value="high">Alta</option>
-                </select>
-              </div>
-            </Panel>
-
-            {canManageTickets && (
-              <Panel title="Crear ticket">
-                <form
-                  onSubmit={createTicket}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-4"
-                >
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Buscar cliente con problema
-                    </label>
-
-                    <input
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                      placeholder="Buscar por nombre, usuario PPPoE, IP, teléfono o zona..."
-                      value={ticketCustomerSearch}
-                      onChange={(e) => setTicketCustomerSearch(e.target.value)}
-                    />
-
-                    {selectedTicketCustomer && (
-                      <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                        <p className="font-bold text-slate-900">
-                          Cliente seleccionado:{" "}
-                          {getCustomerFullName(selectedTicketCustomer) ||
-                            `ID ${selectedTicketCustomer.id}`}
-                        </p>
-
-                        <p className="text-sm text-slate-600">
-                          ID {selectedTicketCustomer.id} · Usuario:{" "}
-                          {selectedTicketCustomer.pppoe_username || "-"} · IP:{" "}
-                          {selectedTicketCustomer.remote_address || "-"} · Zona:{" "}
-                          {selectedTicketCustomer.zone || "-"}
-                        </p>
-
-                        <button
-                          type="button"
-                          className="mt-3 rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-600"
-                          onClick={() => {
-                            setTicketForm({
-                              ...ticketForm,
-                              customer_id: "",
-                            });
-                            setTicketCustomerSearch("");
-                          }}
-                        >
-                          Cambiar cliente
-                        </button>
-                      </div>
-                    )}
-
-                    {ticketCustomerSearch && !selectedTicketCustomer && (
-                      <div className="mt-3 rounded-xl border border-slate-200 bg-white overflow-hidden">
-                        {filteredTicketCustomerOptions.length === 0 && (
-                          <div className="p-4 text-sm text-slate-500">
-                            No se encontraron clientes.
-                          </div>
-                        )}
-
-                        {filteredTicketCustomerOptions.map((customer) => (
-                          <button
-                            key={customer.id}
-                            type="button"
-                            className="w-full border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
-                            onClick={() => {
-                              setTicketForm({
-                                ...ticketForm,
-                                customer_id: customer.id,
-                              });
-
-                              setTicketCustomerSearch(
-                                `${
-                                  getCustomerFullName(customer) ||
-                                  `Cliente ${customer.id}`
-                                } - ${customer.pppoe_username || ""}`
-                              );
-                            }}
-                          >
-                            <p className="font-bold text-slate-900">
-                              {getCustomerFullName(customer) ||
-                                `Cliente ID ${customer.id}`}
-                            </p>
-
-                            <p className="text-xs text-slate-500">
-                              ID {customer.id} · Usuario:{" "}
-                              {customer.pppoe_username || "-"} · IP:{" "}
-                              {customer.remote_address || "-"} · Tel:{" "}
-                              {customer.phone || "-"} · Zona:{" "}
-                              {customer.zone || "-"}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <Input
-                    placeholder="Título"
-                    value={ticketForm.title}
-                    onChange={(e) =>
-                      setTicketForm({
-                        ...ticketForm,
-                        title: e.target.value,
-                      })
-                    }
-                  />
-
-                  <select
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
-                    value={ticketForm.priority}
-                    onChange={(e) =>
-                      setTicketForm({
-                        ...ticketForm,
-                        priority: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="low">Prioridad baja</option>
-                    <option value="medium">Prioridad media</option>
-                    <option value="high">Prioridad alta</option>
-                  </select>
-
-                  <Input
-                    placeholder="Técnico asignado"
-                    value={ticketForm.assigned_technician}
-                    onChange={(e) =>
-                      setTicketForm({
-                        ...ticketForm,
-                        assigned_technician: e.target.value,
-                      })
-                    }
-                  />
-
-                  <textarea
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28 md:col-span-2"
-                    placeholder="Descripción"
-                    value={ticketForm.description}
-                    onChange={(e) =>
-                      setTicketForm({
-                        ...ticketForm,
-                        description: e.target.value,
-                      })
-                    }
-                  />
-
-                  <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500 md:col-span-2">
-                    Guardar ticket
-                  </button>
-                </form>
-              </Panel>
-            )}
 
             <GridList
-              items={filteredTickets}
+              items={tickets}
               render={(ticket) => (
                 <Panel
                   title={`Ticket #${ticket.id} - ${ticket.title}`}
                   key={ticket.id}
                 >
-                  <div className="space-y-2">
-                    <p>
-                      <b>Cliente:</b>{" "}
-                      {ticket.customer_name || `ID ${ticket.customer_id}`}
-                    </p>
+                  <p>Cliente ID: {ticket.customer_id}</p>
+                  <p>{ticket.description}</p>
+                  <p>Estado: {ticket.status}</p>
 
-                    <p>
-                      <b>Usuario PPPoE:</b>{" "}
-                      {ticket.customer_pppoe_username || "-"}
-                    </p>
-
-                    <p>
-                      <b>IP:</b> {ticket.customer_ip || "-"}
-                    </p>
-
-                    <p>
-                      <b>Teléfono:</b> {ticket.customer_phone || "-"}
-                    </p>
-
-                    <p>
-                      <b>Zona:</b> {ticket.customer_zone || "-"}
-                    </p>
-
-                    <p>
-                      <b>Técnico:</b>{" "}
-                      {ticket.assigned_technician || "Sin asignar"}
-                    </p>
-
-                    <p>
-                      <b>Prioridad:</b>{" "}
-                      <span
-                        className={`rounded-md px-3 py-1 text-xs font-bold ${
-                          ticket.priority === "high"
-                            ? "bg-red-600 text-white"
-                            : ticket.priority === "medium"
-                            ? "bg-orange-500 text-white"
-                            : "bg-green-600 text-white"
-                        }`}
-                      >
-                        {ticket.priority === "high"
-                          ? "Alta"
-                          : ticket.priority === "medium"
-                          ? "Media"
-                          : "Baja"}
-                      </span>
-                    </p>
-
-                    <p>
-                      <b>Estado:</b>{" "}
-                      <span
-                        className={`rounded-md px-3 py-1 text-xs font-bold ${
-                          ticket.status === "closed"
-                            ? "bg-green-600 text-white"
-                            : ticket.status === "in_progress"
-                            ? "bg-blue-600 text-white"
-                            : "bg-orange-500 text-white"
-                        }`}
-                      >
-                        {ticket.status === "closed"
-                          ? "Cerrado"
-                          : ticket.status === "in_progress"
-                          ? "En proceso"
-                          : "Abierto"}
-                      </span>
-                    </p>
-
-                    <p>
-                      <b>Creado:</b> {ticket.created_at || "-"}
-                    </p>
-
-                    <p>
-                      <b>Actualizado:</b> {ticket.updated_at || "-"}
-                    </p>
-
-                    {ticket.closed_at && (
-                      <p>
-                        <b>Cerrado:</b> {ticket.closed_at}
-                      </p>
-                    )}
-
-                    <p className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                      {ticket.description || "Sin descripción"}
-                    </p>
-
-                    {canManageTickets && ticket.status !== "closed" && (
-                      <div className="flex flex-wrap gap-3 mt-4">
-                        {ticket.status === "open" && (
-                          <button
-                            className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
-                            onClick={() => startTicket(ticket.id)}
-                          >
-                            Pasar a en proceso
-                          </button>
-                        )}
-
-                        <button
-                          className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
-                          onClick={() => closeTicket(ticket.id)}
-                        >
-                          Cerrar ticket
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  {ticket.status === "open" && canManageTickets && (
+                    <button
+                      className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
+                      onClick={() => closeTicket(ticket.id)}
+                    >
+                      Cerrar ticket
+                    </button>
+                  )}
                 </Panel>
               )}
             />
@@ -2514,100 +1502,590 @@ Nota: ${paymentNote || "-"}`
         {section === "installations" && (
           <Module title="Instalaciones">
             {canManageInstallations && (
-              <Panel title="Crear instalación">
-                <form
-                  onSubmit={createInstallation}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-4"
-                >
-                  <Input
-                    type="number"
-                    placeholder="Cliente ID"
-                    value={installationForm.customer_id}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        customer_id: e.target.value,
-                      })
-                    }
-                  />
+              <Panel title="Gestión de instalaciones">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-950">
+                      🧩 Agendar Instalación
+                    </h2>
+                    <p className="text-slate-500">
+                      Creá una instalación con cliente nuevo, datos PPPoE,
+                      router MikroTik, plan e IP disponible.
+                    </p>
+                  </div>
 
-                  <Input
-                    placeholder="Técnico"
-                    value={installationForm.technician}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        technician: e.target.value,
-                      })
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowNewInstallationForm(!showNewInstallationForm)
                     }
-                  />
-
-                  <Input
-                    type="date"
-                    value={installationForm.scheduled_date}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        scheduled_date: e.target.value,
-                      })
-                    }
-                  />
-
-                  <Input
-                    placeholder="Dirección"
-                    value={installationForm.address}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        address: e.target.value,
-                      })
-                    }
-                  />
-
-                  <Input
-                    placeholder="Tipo de instalación"
-                    value={installationForm.installation_type}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        installation_type: e.target.value,
-                      })
-                    }
-                  />
-
-                  <textarea
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28 md:col-span-2"
-                    placeholder="Notas"
-                    value={installationForm.notes}
-                    onChange={(e) =>
-                      setInstallationForm({
-                        ...installationForm,
-                        notes: e.target.value,
-                      })
-                    }
-                  />
-
-                  <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500 md:col-span-2">
-                    Guardar instalación
+                    className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-500"
+                  >
+                    {showNewInstallationForm
+                      ? "Cerrar formulario"
+                      : "➕ Nueva instalación"}
                   </button>
+                </div>
+              </Panel>
+            )}
+
+            {canManageInstallations && showNewInstallationForm && (
+              <Panel title="Agendar Instalación">
+                <div className="mb-6 flex flex-wrap gap-2 border-b border-slate-200">
+                  <button
+                    type="button"
+                    className="border-b-4 border-green-500 px-4 py-3 text-sm font-bold text-slate-900"
+                  >
+                    ⚙ Configuración Básica
+                  </button>
+
+                  <button
+                    type="button"
+                    className="px-4 py-3 text-sm font-bold text-slate-500"
+                  >
+                    ⚙ Configuración Avanzada
+                  </button>
+                </div>
+
+                <form onSubmit={createInstallation} className="space-y-8">
+                  <section>
+                    <h3 className="mb-4 text-xl font-bold text-slate-900">
+                      ℹ️ Datos del cliente
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[230px_1fr] gap-4 items-center">
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Nombre
+                      </label>
+                      <Input
+                        placeholder="Nombre"
+                        value={installationForm.customer_name}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_name", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Apellido
+                      </label>
+                      <Input
+                        placeholder="Apellido"
+                        value={installationForm.customer_last_name}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "customer_last_name",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        DNI/C.I./C.C.
+                      </label>
+                      <Input
+                        placeholder="Documento"
+                        value={installationForm.customer_dni}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_dni", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Dirección de correo electrónico
+                      </label>
+                      <Input
+                        type="email"
+                        placeholder="correo@cliente.com"
+                        value={installationForm.customer_email}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_email", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Emails C.C
+                      </label>
+                      <Input
+                        placeholder="Correos adicionales para enviar notificaciones"
+                        value={installationForm.customer_email_cc}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "customer_email_cc",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Dirección
+                      </label>
+                      <textarea
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-20"
+                        placeholder="Dirección del cliente"
+                        value={installationForm.customer_address}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "customer_address",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        External ID
+                      </label>
+                      <Input
+                        placeholder="Identificador de usuario externo"
+                        value={installationForm.customer_external_id}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "customer_external_id",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Coordenadas
+                      </label>
+                      <Input
+                        placeholder="Ej. -34.60,-58.38"
+                        value={installationForm.customer_coordinates}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "customer_coordinates",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Barrio/Localidad/Departamento
+                      </label>
+                      <Input
+                        placeholder="Escribe el nombre de la localidad"
+                        value={installationForm.customer_zone}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_zone", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Ciudad/Municipio
+                      </label>
+                      <Input
+                        placeholder="Ciudad o municipio"
+                        value={installationForm.customer_city}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_city", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Teléfono Celular
+                      </label>
+                      <Input
+                        placeholder="Teléfono"
+                        value={installationForm.customer_phone}
+                        onChange={(e) =>
+                          updateInstallationForm("customer_phone", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Forma de contratación
+                      </label>
+                      <select
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                        value={installationForm.contract_type}
+                        onChange={(e) =>
+                          updateInstallationForm("contract_type", e.target.value)
+                        }
+                      >
+                        <option value="">Seleccionar</option>
+                        <option value="Mensual">Mensual</option>
+                        <option value="Prepago">Prepago</option>
+                        <option value="Contrato">Contrato</option>
+                        <option value="Otro">Otro</option>
+                      </select>
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Fecha instalación
+                      </label>
+                      <Input
+                        type="date"
+                        value={installationForm.scheduled_date}
+                        onChange={(e) =>
+                          updateInstallationForm("scheduled_date", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Costo instalación
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="$ Costo de instalación"
+                        value={installationForm.installation_cost}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "installation_cost",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right self-start pt-3">
+                        Comentarios
+                      </label>
+                      <textarea
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-44"
+                        placeholder="Comentarios"
+                        value={installationForm.comments}
+                        onChange={(e) =>
+                          updateInstallationForm("comments", e.target.value)
+                        }
+                      />
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="mb-4 text-xl font-bold text-slate-900">
+                      📶 Datos de Conexión
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[230px_1fr] gap-4 items-center">
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Nombre Secret PPPoE
+                      </label>
+                      <Input
+                        placeholder="Usuario PPPoE"
+                        value={installationForm.pppoe_username}
+                        onChange={(e) =>
+                          updateInstallationForm("pppoe_username", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Password PPPoE
+                      </label>
+                      <Input
+                        placeholder="Password PPPoE"
+                        value={installationForm.pppoe_password}
+                        onChange={(e) =>
+                          updateInstallationForm("pppoe_password", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Routers MikroTik
+                      </label>
+                      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                        <select
+                          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                          value={installationForm.router_id}
+                          onChange={(e) => {
+                            const routerId = e.target.value;
+                            updateInstallationForm("router_id", routerId);
+                            updateInstallationForm("remote_address", "");
+                            loadMikrotikPools(routerId);
+                          }}
+                        >
+                          <option value="">Seleccionar router MikroTik</option>
+                          {installationRouters.map((router) => (
+                            <option key={router.id} value={router.id}>
+                              {router.name || `Router ${router.id}`}
+                              {router.host ? ` - ${router.host}` : ""}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            loadMikrotikPools(installationForm.router_id)
+                          }
+                          className="rounded-xl bg-slate-800 px-4 py-3 font-bold text-white hover:bg-slate-700"
+                        >
+                          Cargar pools MikroTik
+                        </button>
+                      </div>
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Plan internet
+                      </label>
+                      <select
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                        value={installationForm.plan_id}
+                        onChange={(e) => {
+                          const planId = e.target.value;
+                          updateInstallationForm("plan_id", planId);
+
+                          const suggested = getSuggestedPoolName(planId);
+                          const pool = mikrotikPools.find(
+                            (item) =>
+                              String(item.name || "").toLowerCase() ===
+                              suggested.toLowerCase()
+                          );
+
+                          if (pool) {
+                            setSelectedPoolName(pool.name);
+                            setAvailableIps([]);
+                          }
+                        }}
+                      >
+                        <option value="">Seleccionar plan</option>
+                        {installationPlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name ||
+                              plan.plan_name ||
+                              plan.nombre ||
+                              `Plan ${plan.id}`}
+                            {plan.price ? ` - $${plan.price}` : ""}
+                          </option>
+                        ))}
+                      </select>
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Remote Address PPPoE
+                      </label>
+                      <div className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_1fr] gap-3">
+                          <select
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                            value={selectedPoolName}
+                            onChange={(e) => {
+                              setSelectedPoolName(e.target.value);
+                              setAvailableIps([]);
+                              updateInstallationForm("remote_address", "");
+                            }}
+                          >
+                            <option value="">
+                              {mikrotikPools.length > 0
+                                ? "Seleccionar pool"
+                                : "Primero cargá pools del router"}
+                            </option>
+                            {mikrotikPools.map((pool) => (
+                              <option key={pool.name} value={pool.name}>
+                                {pool.name}
+                                {pool.total_count
+                                  ? ` (${pool.total_count} IPs)`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={loadAvailableIps}
+                            disabled={availableIpsLoading}
+                            className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-500 disabled:opacity-60"
+                          >
+                            {availableIpsLoading
+                              ? "Buscando..."
+                              : "Buscar IP libre"}
+                          </button>
+
+                          <Input
+                            placeholder="Remote Address seleccionado"
+                            value={installationForm.remote_address}
+                            onChange={(e) =>
+                              updateInstallationForm(
+                                "remote_address",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {availableIps.length > 0 && (
+                          <div className="mt-4">
+                            <select
+                              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                              value={installationForm.remote_address}
+                              onChange={(e) =>
+                                updateInstallationForm(
+                                  "remote_address",
+                                  e.target.value
+                                )
+                              }
+                            >
+                              <option value="">Seleccionar IP disponible</option>
+                              {availableIps.map((ip) => (
+                                <option key={ip} value={ip}>
+                                  {ip}
+                                </option>
+                              ))}
+                            </select>
+
+                            <p className="mt-2 text-xs text-slate-500">
+                              IPs disponibles filtradas para evitar duplicados.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Mac CPE
+                      </label>
+                      <Input
+                        placeholder="MAC CPE"
+                        value={installationForm.mac_cpe}
+                        onChange={(e) =>
+                          updateInstallationForm("mac_cpe", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Local Address PPPoE
+                      </label>
+                      <Input
+                        placeholder="Local Address PPPoE"
+                        value={installationForm.local_address_pppoe}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "local_address_pppoe",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Zona cliente
+                      </label>
+                      <Input
+                        placeholder="Zona cliente"
+                        value={installationForm.client_zone}
+                        onChange={(e) =>
+                          updateInstallationForm("client_zone", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Técnico
+                      </label>
+                      <Input
+                        placeholder="Técnico"
+                        value={installationForm.technician}
+                        onChange={(e) =>
+                          updateInstallationForm("technician", e.target.value)
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Estado instalación
+                      </label>
+                      <select
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                        value={installationForm.installation_status}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "installation_status",
+                            e.target.value
+                          )
+                        }
+                      >
+                        <option value="Nueva">Nueva</option>
+                        <option value="Pendiente">Pendiente</option>
+                        <option value="Programada">Programada</option>
+                      </select>
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Sectorial/Nodo/NAP
+                      </label>
+                      <Input
+                        placeholder="Sectorial / Nodo / NAP"
+                        value={installationForm.sector_node_nap}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "sector_node_nap",
+                            e.target.value
+                          )
+                        }
+                      />
+
+                      <label className="font-bold text-slate-700 md:text-right">
+                        Tipo de instalación
+                      </label>
+                      <Input
+                        placeholder="Fibra, inalámbrica, cambio de equipo..."
+                        value={installationForm.installation_type}
+                        onChange={(e) =>
+                          updateInstallationForm(
+                            "installation_type",
+                            e.target.value
+                          )
+                        }
+                      />
+                    </div>
+                  </section>
+
+                  <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-5">
+                    <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500">
+                      💾 Guardar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetInstallationForm();
+                        setShowNewInstallationForm(false);
+                      }}
+                      className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-700 hover:bg-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </form>
               </Panel>
             )}
 
+            <Panel title="Instalaciones pendientes">
+              {visibleInstallations.length === 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                  No hay instalaciones pendientes.
+                </div>
+              )}
+            </Panel>
+
             <GridList
-              items={installations}
+              items={visibleInstallations}
               render={(installation) => (
                 <Panel
                   title={`Instalación #${installation.id}`}
                   key={installation.id}
                 >
-                  <p>Cliente ID: {installation.customer_id}</p>
-                  <p>Técnico: {installation.technician}</p>
-                  <p>Fecha: {installation.scheduled_date}</p>
-                  <p>Dirección: {installation.address}</p>
-                  <p>Tipo: {installation.installation_type}</p>
-                  <p>Estado: {installation.status}</p>
-                  <p>{installation.notes}</p>
+                  <p>
+                    <b>Cliente:</b>{" "}
+                    {installation.customer_name ||
+                      installation.customer_id ||
+                      "-"}
+                  </p>
+                  <p>
+                    <b>Usuario PPPoE:</b>{" "}
+                    {installation.customer_pppoe_username || "-"}
+                  </p>
+                  <p>
+                    <b>IP:</b> {installation.customer_ip || "-"}
+                  </p>
+                  <p>
+                    <b>Técnico:</b> {installation.technician || "-"}
+                  </p>
+                  <p>
+                    <b>Fecha:</b> {installation.scheduled_date || "-"}
+                  </p>
+                  <p>
+                    <b>Dirección:</b> {installation.address || "-"}
+                  </p>
+                  <p>
+                    <b>Tipo:</b> {installation.installation_type || "-"}
+                  </p>
+                  <p>
+                    <b>Estado:</b> {installation.status || "-"}
+                  </p>
+                  <p className="rounded-xl bg-slate-50 border border-slate-200 p-3 whitespace-pre-wrap">
+                    {installation.notes || "Sin observaciones"}
+                  </p>
 
                   {installation.status === "pending" &&
                     canManageInstallations && (
