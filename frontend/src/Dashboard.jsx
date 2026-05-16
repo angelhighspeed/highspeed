@@ -48,6 +48,10 @@ function Dashboard({ onLogout }) {
   const [cashboxData, setCashboxData] = useState(null);
   const [cashboxLoading, setCashboxLoading] = useState(false);
 
+  const [paymentHistoryCustomerId, setPaymentHistoryCustomerId] = useState("");
+  const [paymentHistoryData, setPaymentHistoryData] = useState(null);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
 
@@ -97,6 +101,7 @@ function Dashboard({ onLogout }) {
   const canViewInvoices = ["admin", "cobrador"].includes(role);
   const canManageInvoices = ["admin", "cobrador"].includes(role);
   const canViewCashbox = ["admin", "cobrador"].includes(role);
+  const canViewPaymentHistory = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewTickets = ["admin", "tecnico", "operador"].includes(role);
   const canManageTickets = ["admin", "tecnico"].includes(role);
@@ -140,6 +145,58 @@ function Dashboard({ onLogout }) {
     } finally {
       setCashboxLoading(false);
     }
+  };
+
+
+  const loadPaymentHistory = async (customerId = paymentHistoryCustomerId) => {
+    try {
+      if (!canViewPaymentHistory) return;
+
+      const cleanCustomerId = String(customerId || "").trim();
+
+      if (!cleanCustomerId) {
+        alert("Ingresá el ID del cliente.");
+        return;
+      }
+
+      setPaymentHistoryLoading(true);
+
+      const res = await axios.get(
+        `${API}/customers/${cleanCustomerId}/payment-history`,
+        getAuthHeaders()
+      );
+
+      setPaymentHistoryData(res.data);
+      setPaymentHistoryCustomerId(cleanCustomerId);
+    } catch (error) {
+      console.error("Error cargando historial de pagos:", error);
+
+      if (error.response?.status === 404) {
+        alert("Cliente no encontrado.");
+        return;
+      }
+
+      if (error.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        onLogout();
+        return;
+      }
+
+      alert("No se pudo cargar el historial de pagos.");
+    } finally {
+      setPaymentHistoryLoading(false);
+    }
+  };
+
+  const openPaymentHistory = async (customerId) => {
+    const cleanCustomerId = String(customerId || "").trim();
+
+    if (!cleanCustomerId) return;
+
+    setSection("paymentHistory");
+    setPaymentHistoryCustomerId(cleanCustomerId);
+    await loadPaymentHistory(cleanCustomerId);
   };
 
   const loadData = async () => {
@@ -796,6 +853,15 @@ Nota: ${paymentNote || "-"}`
             />
           )}
 
+          {canViewPaymentHistory && (
+            <SidebarButton
+              icon="📜"
+              label="Historial pagos"
+              active={section === "paymentHistory"}
+              onClick={() => setSection("paymentHistory")}
+            />
+          )}
+
           {canViewTickets && (
             <SidebarButton
               icon="🎫"
@@ -1264,6 +1330,16 @@ Nota: ${paymentNote || "-"}`
                       <b>Zona:</b> {customer?.zone || "-"}
                     </p>
 
+                    {canViewPaymentHistory && (
+                      <button
+                        type="button"
+                        onClick={() => openPaymentHistory(invoice.customer_id)}
+                        className="rounded-xl bg-slate-700 px-4 py-2 font-bold text-white hover:bg-slate-600 mt-3"
+                      >
+                        Ver historial de pagos
+                      </button>
+                    )}
+
                     <p>
                       <b>Monto:</b> ${invoice.amount}
                     </p>
@@ -1331,6 +1407,233 @@ Nota: ${paymentNote || "-"}`
           </Module>
         )}
 
+
+
+        {section === "paymentHistory" && canViewPaymentHistory && (
+          <Module title="Historial de pagos por cliente">
+            <Panel title="Buscar cliente">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">
+                    ID del cliente
+                  </label>
+
+                  <input
+                    type="number"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                    placeholder="Ej: 875"
+                    value={paymentHistoryCustomerId}
+                    onChange={(e) => setPaymentHistoryCustomerId(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => loadPaymentHistory(paymentHistoryCustomerId)}
+                  disabled={paymentHistoryLoading}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                >
+                  {paymentHistoryLoading ? "Buscando..." : "Ver historial"}
+                </button>
+              </div>
+            </Panel>
+
+            {paymentHistoryData?.customer && (
+              <Panel title="Datos del cliente">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-slate-500 text-sm">Cliente</p>
+                    <h3 className="text-xl font-bold text-slate-950">
+                      {paymentHistoryData.customer.name || "-"}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500 text-sm">Usuario PPPoE</p>
+                    <h3 className="text-xl font-bold text-blue-600">
+                      {paymentHistoryData.customer.pppoe_username || "-"}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500 text-sm">IP</p>
+                    <h3 className="text-xl font-bold text-slate-950">
+                      {paymentHistoryData.customer.ip || "-"}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500 text-sm">Teléfono</p>
+                    <h3 className="text-xl font-bold text-slate-950">
+                      {paymentHistoryData.customer.phone || "-"}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500 text-sm">Zona</p>
+                    <h3 className="text-xl font-bold text-slate-950">
+                      {paymentHistoryData.customer.zone || "-"}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500 text-sm">Estado</p>
+                    <h3 className="text-xl font-bold text-green-600">
+                      {paymentHistoryData.customer.status || "-"}
+                    </h3>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            {paymentHistoryData?.summary && (
+              <Panel title="Resumen del cliente">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                  <StatBox
+                    title="Facturas"
+                    value={paymentHistoryData.summary.total_invoices || 0}
+                  />
+
+                  <StatBox
+                    title="Pagadas"
+                    value={paymentHistoryData.summary.paid_invoices || 0}
+                    color="text-green-600"
+                  />
+
+                  <StatBox
+                    title="Pendientes"
+                    value={paymentHistoryData.summary.pending_invoices || 0}
+                    color="text-orange-500"
+                  />
+
+                  <StatBox
+                    title="Facturado"
+                    value={`$${paymentHistoryData.summary.total_billed || 0}`}
+                    color="text-blue-600"
+                  />
+
+                  <StatBox
+                    title="Pagado"
+                    value={`$${paymentHistoryData.summary.total_paid || 0}`}
+                    color="text-green-600"
+                  />
+
+                  <StatBox
+                    title="Debe"
+                    value={`$${paymentHistoryData.summary.total_pending || 0}`}
+                    color="text-red-600"
+                  />
+                </div>
+              </Panel>
+            )}
+
+            {paymentHistoryData?.invoices && (
+              <Panel title="Facturas del cliente">
+                {!paymentHistoryData.invoices.length && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                    Este cliente todavía no tiene facturas.
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border border-slate-200 rounded-xl overflow-hidden">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Factura
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Monto
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Vence
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Estado
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Fecha pago
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Método
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Observación
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-slate-600">
+                          Recibo
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {paymentHistoryData.invoices.map((invoice) => (
+                        <tr
+                          key={invoice.invoice_id}
+                          className="border-t border-slate-200"
+                        >
+                          <td className="px-3 py-3 text-sm font-bold text-slate-900">
+                            #{invoice.invoice_id}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm font-bold text-green-600">
+                            ${invoice.amount || 0}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm text-slate-700">
+                            {invoice.due_date || "-"}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm">
+                            <span
+                              className={`rounded-md px-3 py-1 text-xs font-bold ${
+                                invoice.status === "paid"
+                                  ? "bg-green-500 text-white"
+                                  : "bg-orange-500 text-white"
+                              }`}
+                            >
+                              {invoice.status === "paid"
+                                ? "Pagada"
+                                : "Pendiente"}
+                            </span>
+                          </td>
+
+                          <td className="px-3 py-3 text-sm text-slate-700">
+                            {invoice.paid_at || "-"}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm text-slate-700">
+                            {invoice.payment_method || "-"}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm text-slate-700">
+                            {invoice.payment_note || "-"}
+                          </td>
+
+                          <td className="px-3 py-3 text-sm">
+                            {invoice.status === "paid" ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  exportInvoiceReceiptPdf(invoice.invoice_id)
+                                }
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500"
+                              >
+                                Descargar
+                              </button>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            )}
+          </Module>
+        )}
 
         {section === "cashbox" && canViewCashbox && (
           <Module title="Caja diaria">

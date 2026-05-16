@@ -16,19 +16,29 @@ from app.models.router_model import Router
 
 # Routers
 from app.routers.auth_router import router as auth_router
+
 from app.routers.customer_router import router as customer_router
+from app.routers.customer_payment_history_router import (
+    router as customer_payment_history_router,
+)
+
 from app.routers.plan_router import router as plan_router
+
 from app.routers.invoice_router import router as invoice_router
 from app.routers.invoice_export_router import router as invoice_export_router
 from app.routers.invoice_pdf_router import router as invoice_pdf_router
 from app.routers.invoice_receipt_router import router as invoice_receipt_router
+
 from app.routers.cashbox_router import router as cashbox_router
+
 from app.routers.ticket_router import router as ticket_router
 from app.routers.installation_router import router as installation_router
 from app.routers.router_router import router as router_router
 from app.routers.mikrotik_router import router as mikrotik_router
+
 from app.routers.billing_router import router as billing_router
 from app.routers.billing_generate_router import router as billing_generate_router
+
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.dashboard_clients_router import router as dashboard_clients_router
 
@@ -62,13 +72,17 @@ app.include_router(billing_router)
 app.include_router(billing_generate_router)
 
 app.include_router(installation_router)
+
 app.include_router(customer_router)
+app.include_router(customer_payment_history_router)
+
 app.include_router(plan_router)
 
 app.include_router(invoice_router)
 app.include_router(invoice_export_router)
 app.include_router(invoice_pdf_router)
 app.include_router(invoice_receipt_router)
+
 app.include_router(cashbox_router)
 
 app.include_router(auth_router)
