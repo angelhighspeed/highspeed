@@ -1,14 +1,12 @@
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, engine
 from app.auth.dependencies import require_roles
-from app.models.ticket_model import Ticket
 from app.models.customer_model import Customer
 
 
@@ -18,115 +16,23 @@ router = APIRouter()
 class TicketCreate(BaseModel):
     customer_id: int
     title: str
-    description: Optional[str] = ""
-    priority: Optional[str] = "medium"
-    assigned_technician: Optional[str] = ""
+    description: str = ""
+    priority: str = "medium"
+    assigned_technician: str = ""
+    category: str = ""
 
 
 class TicketUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[str] = None
-    priority: Optional[str] = None
-    assigned_technician: Optional[str] = None
-
-
-def ensure_ticket_columns():
-    dialect = engine.dialect.name
-
-    try:
-        if dialect == "postgresql":
-            with engine.begin() as conn:
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE tickets
-                        ADD COLUMN IF NOT EXISTS priority VARCHAR DEFAULT 'medium'
-                        """
-                    )
-                )
-
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE tickets
-                        ADD COLUMN IF NOT EXISTS assigned_technician VARCHAR
-                        """
-                    )
-                )
-
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE tickets
-                        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP
-                        """
-                    )
-                )
-
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE tickets
-                        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
-                        """
-                    )
-                )
-
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE tickets
-                        ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP
-                        """
-                    )
-                )
-
-            return
-
-        if dialect == "sqlite":
-            with engine.begin() as conn:
-                result = conn.execute(text("PRAGMA table_info(tickets)"))
-                columns = [row[1] for row in result.fetchall()]
-
-                if "priority" not in columns:
-                    conn.execute(
-                        text(
-                            "ALTER TABLE tickets ADD COLUMN priority VARCHAR DEFAULT 'medium'"
-                        )
-                    )
-
-                if "assigned_technician" not in columns:
-                    conn.execute(
-                        text(
-                            "ALTER TABLE tickets ADD COLUMN assigned_technician VARCHAR"
-                        )
-                    )
-
-                if "created_at" not in columns:
-                    conn.execute(
-                        text("ALTER TABLE tickets ADD COLUMN created_at DATETIME")
-                    )
-
-                if "updated_at" not in columns:
-                    conn.execute(
-                        text("ALTER TABLE tickets ADD COLUMN updated_at DATETIME")
-                    )
-
-                if "closed_at" not in columns:
-                    conn.execute(
-                        text("ALTER TABLE tickets ADD COLUMN closed_at DATETIME")
-                    )
-
-            return
-
-    except Exception as e:
-        print("Error verificando columnas de tickets:", e)
+    title: str | None = None
+    description: str | None = None
+    priority: str | None = None
+    assigned_technician: str | None = None
+    category: str | None = None
+    solution: str | None = None
+    status: str | None = None
 
 
 def get_db():
-    ensure_ticket_columns()
-
     db = SessionLocal()
 
     try:
@@ -135,327 +41,377 @@ def get_db():
         db.close()
 
 
-def normalize_priority(priority: Optional[str]):
-    value = (priority or "medium").strip().lower()
-
-    allowed = {
-        "low",
-        "medium",
-        "high",
-        "baja",
-        "media",
-        "alta",
-    }
-
-    if value not in allowed:
-        return "medium"
-
-    if value == "baja":
-        return "low"
-
-    if value == "media":
-        return "medium"
-
-    if value == "alta":
-        return "high"
-
-    return value
+def now_string():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def normalize_status(status: Optional[str]):
-    value = (status or "open").strip().lower()
+def get_table_columns(table_name: str):
+    dialect = engine.dialect.name
 
-    allowed = {
-        "open",
-        "in_progress",
-        "closed",
-        "abierto",
-        "en_proceso",
-        "cerrado",
-    }
+    with engine.begin() as conn:
+        if dialect == "sqlite":
+            rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+            return [row[1] for row in rows]
 
-    if value not in allowed:
-        return "open"
+        rows = conn.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                """
+            ),
+            {"table_name": table_name},
+        ).fetchall()
 
-    if value == "abierto":
-        return "open"
-
-    if value == "en_proceso":
-        return "in_progress"
-
-    if value == "cerrado":
-        return "closed"
-
-    return value
+        return [row[0] for row in rows]
 
 
-def format_datetime(value):
-    if not value:
-        return None
+def ensure_ticket_columns():
+    dialect = engine.dialect.name
 
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        if dialect == "postgresql":
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS customer_id INTEGER"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS title VARCHAR"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS description TEXT"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'open'"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS priority VARCHAR DEFAULT 'medium'"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_technician VARCHAR"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS category VARCHAR"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS solution TEXT"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS created_at VARCHAR"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at VARCHAR"))
+                conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS closed_at VARCHAR"))
+            return
 
-    return str(value)
+        if dialect == "sqlite":
+            columns = get_table_columns("tickets")
+
+            alters = {
+                "customer_id": "ALTER TABLE tickets ADD COLUMN customer_id INTEGER",
+                "title": "ALTER TABLE tickets ADD COLUMN title VARCHAR",
+                "description": "ALTER TABLE tickets ADD COLUMN description TEXT",
+                "status": "ALTER TABLE tickets ADD COLUMN status VARCHAR DEFAULT 'open'",
+                "priority": "ALTER TABLE tickets ADD COLUMN priority VARCHAR DEFAULT 'medium'",
+                "assigned_technician": "ALTER TABLE tickets ADD COLUMN assigned_technician VARCHAR",
+                "category": "ALTER TABLE tickets ADD COLUMN category VARCHAR",
+                "solution": "ALTER TABLE tickets ADD COLUMN solution TEXT",
+                "created_at": "ALTER TABLE tickets ADD COLUMN created_at VARCHAR",
+                "updated_at": "ALTER TABLE tickets ADD COLUMN updated_at VARCHAR",
+                "closed_at": "ALTER TABLE tickets ADD COLUMN closed_at VARCHAR",
+            }
+
+            with engine.begin() as conn:
+                for column, statement in alters.items():
+                    if column not in columns:
+                        conn.execute(text(statement))
+    except Exception as e:
+        print("No se pudieron asegurar columnas de tickets:", e)
 
 
-def serialize_ticket(ticket: Ticket, customer: Optional[Customer] = None):
-    customer_name = None
+ensure_ticket_columns()
 
-    if customer:
-        customer_name = f"{customer.name or ''} {customer.last_name or ''}".strip()
+
+def get_first_attr(obj, names, default=None):
+    if obj is None:
+        return default
+
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+
+            if value not in [None, ""]:
+                return value
+
+    return default
+
+
+def serialize_customer(customer: Customer | None):
+    if not customer:
+        return {}
 
     return {
-        "id": ticket.id,
-        "customer_id": ticket.customer_id,
-        "customer_name": customer_name,
-        "customer_pppoe_username": customer.pppoe_username if customer else None,
-        "customer_ip": customer.remote_address if customer else None,
-        "customer_phone": customer.phone if customer else None,
-        "customer_zone": customer.zone if customer else None,
-
-        "title": ticket.title,
-        "description": ticket.description,
-        "status": ticket.status,
-        "priority": ticket.priority,
-        "assigned_technician": ticket.assigned_technician,
-
-        "created_at": format_datetime(ticket.created_at),
-        "updated_at": format_datetime(ticket.updated_at),
-        "closed_at": format_datetime(ticket.closed_at),
+        "customer_name": f"{get_first_attr(customer, ['name', 'first_name', 'nombre'], '') or ''} {get_first_attr(customer, ['last_name', 'lastname', 'apellido'], '') or ''}".strip(),
+        "customer_pppoe_username": get_first_attr(customer, ["pppoe_username", "username_pppoe", "username"], ""),
+        "customer_ip": get_first_attr(customer, ["remote_address", "ip", "ip_address"], ""),
+        "customer_phone": get_first_attr(customer, ["phone", "telefono", "cellphone", "mobile"], ""),
+        "customer_zone": get_first_attr(customer, ["zone", "zona", "localidad"], ""),
+        "customer_status": get_first_attr(customer, ["status", "estado", "state"], ""),
     }
+
+
+def normalize_ticket(row, customer: Customer | None = None):
+    item = dict(row)
+
+    if not item.get("status"):
+        item["status"] = "open"
+
+    if not item.get("priority"):
+        item["priority"] = "medium"
+
+    if "assigned_technician" not in item:
+        item["assigned_technician"] = ""
+
+    if "category" not in item:
+        item["category"] = ""
+
+    if "solution" not in item:
+        item["solution"] = ""
+
+    item.update(serialize_customer(customer))
+
+    return item
+
+
+def get_ticket_or_404(db: Session, ticket_id: int):
+    rows = db.execute(
+        text("SELECT * FROM tickets WHERE id = :id"),
+        {"id": ticket_id},
+    ).mappings().all()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    return dict(rows[0])
+
+
+def update_ticket_status(db: Session, ticket_id: int, status: str):
+    ticket = get_ticket_or_404(db, ticket_id)
+
+    columns = get_table_columns("tickets")
+    updates = {}
+    updates["status"] = status
+
+    if "updated_at" in columns:
+        updates["updated_at"] = now_string()
+
+    if status == "closed" and "closed_at" in columns:
+        updates["closed_at"] = now_string()
+
+    if status != "closed" and "closed_at" in columns:
+        updates["closed_at"] = None
+
+    valid_updates = {
+        key: value
+        for key, value in updates.items()
+        if key in columns
+    }
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in valid_updates.keys()])
+
+    params = {"id": ticket_id, **valid_updates}
+
+    db.execute(
+        text(f"UPDATE tickets SET {set_clause} WHERE id = :id"),
+        params,
+    )
+
+    db.commit()
+
+    return get_ticket_or_404(db, ticket_id)
 
 
 @router.get("/tickets")
 def get_tickets(
-    status: Optional[str] = Query(default=None),
-    priority: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "tecnico",
-            "operador",
-        ])
-    ),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador", "cobrador"])),
 ):
-    query = db.query(Ticket)
+    ensure_ticket_columns()
 
-    if status:
-        query = query.filter(Ticket.status == normalize_status(status))
+    rows = db.execute(
+        text("SELECT * FROM tickets ORDER BY id DESC")
+    ).mappings().all()
 
-    if priority:
-        query = query.filter(Ticket.priority == normalize_priority(priority))
+    customer_ids = [
+        row.get("customer_id")
+        for row in rows
+        if row.get("customer_id") is not None
+    ]
 
-    tickets = (
-        query
-        .order_by(Ticket.id.desc())
-        .all()
-    )
+    customers_by_id = {}
 
-    customer_ids = list({
-        ticket.customer_id
-        for ticket in tickets
-        if ticket.customer_id
-    })
+    if customer_ids:
+        customers = (
+            db.query(Customer)
+            .filter(Customer.id.in_(customer_ids))
+            .all()
+        )
 
-    customers = (
-        db.query(Customer)
-        .filter(Customer.id.in_(customer_ids))
-        .all()
-        if customer_ids
-        else []
-    )
-
-    customers_by_id = {
-        customer.id: customer
-        for customer in customers
-    }
+        customers_by_id = {
+            customer.id: customer for customer in customers
+        }
 
     return [
-        serialize_ticket(
-            ticket,
-            customers_by_id.get(ticket.customer_id),
-        )
-        for ticket in tickets
+        normalize_ticket(row, customers_by_id.get(row.get("customer_id")))
+        for row in rows
     ]
 
 
 @router.post("/tickets")
 def create_ticket(
-    ticket_data: TicketCreate,
+    data: TicketCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "tecnico",
-            "operador",
-        ])
-    ),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
 ):
-    customer = (
-        db.query(Customer)
-        .filter(Customer.id == ticket_data.customer_id)
-        .first()
-    )
+    ensure_ticket_columns()
+
+    customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
 
     if not customer:
-        raise HTTPException(
-            status_code=404,
-            detail="Cliente no encontrado",
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    if not data.title:
+        raise HTTPException(status_code=400, detail="Ingresá el título del ticket")
+
+    columns = get_table_columns("tickets")
+
+    payload = {
+        "customer_id": data.customer_id,
+        "title": data.title,
+        "description": data.description or "",
+        "status": "open",
+        "priority": data.priority or "medium",
+        "assigned_technician": data.assigned_technician or "",
+        "category": data.category or "",
+        "solution": "",
+        "created_at": now_string(),
+        "updated_at": now_string(),
+        "closed_at": None,
+    }
+
+    payload = {
+        key: value
+        for key, value in payload.items()
+        if key in columns
+    }
+
+    keys = list(payload.keys())
+    columns_sql = ", ".join(keys)
+    values_sql = ", ".join([f":{key}" for key in keys])
+
+    dialect = engine.dialect.name
+
+    if dialect == "postgresql":
+        result = db.execute(
+            text(f"INSERT INTO tickets ({columns_sql}) VALUES ({values_sql}) RETURNING id"),
+            payload,
         )
 
-    ticket = Ticket(
-        customer_id=ticket_data.customer_id,
-        title=ticket_data.title,
-        description=ticket_data.description or "",
-        status="open",
-        priority=normalize_priority(ticket_data.priority),
-        assigned_technician=ticket_data.assigned_technician or "",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
+        ticket_id = result.scalar()
 
-    db.add(ticket)
+    else:
+        result = db.execute(
+            text(f"INSERT INTO tickets ({columns_sql}) VALUES ({values_sql})"),
+            payload,
+        )
+
+        ticket_id = result.lastrowid
+
     db.commit()
-    db.refresh(ticket)
 
-    return serialize_ticket(ticket, customer)
+    ticket = get_ticket_or_404(db, ticket_id)
+
+    return {
+        "status": "ok",
+        "message": "Ticket creado correctamente.",
+        "ticket": normalize_ticket(ticket, customer),
+    }
 
 
 @router.put("/tickets/{ticket_id}")
 def update_ticket(
     ticket_id: int,
-    ticket_data: TicketUpdate,
+    data: TicketUpdate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "tecnico",
-            "operador",
-        ])
-    ),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
 ):
-    ticket = (
-        db.query(Ticket)
-        .filter(Ticket.id == ticket_id)
-        .first()
+    ensure_ticket_columns()
+    get_ticket_or_404(db, ticket_id)
+
+    columns = get_table_columns("tickets")
+
+    payload = data.model_dump(exclude_unset=True)
+
+    if "updated_at" in columns:
+        payload["updated_at"] = now_string()
+
+    valid_payload = {
+        key: value
+        for key, value in payload.items()
+        if key in columns
+    }
+
+    if not valid_payload:
+        return {
+            "status": "ok",
+            "message": "No hubo cambios para aplicar.",
+            "ticket": get_ticket_or_404(db, ticket_id),
+        }
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in valid_payload.keys()])
+
+    db.execute(
+        text(f"UPDATE tickets SET {set_clause} WHERE id = :id"),
+        {"id": ticket_id, **valid_payload},
     )
-
-    if not ticket:
-        raise HTTPException(
-            status_code=404,
-            detail="Ticket no encontrado",
-        )
-
-    if ticket_data.title is not None:
-        ticket.title = ticket_data.title
-
-    if ticket_data.description is not None:
-        ticket.description = ticket_data.description
-
-    if ticket_data.priority is not None:
-        ticket.priority = normalize_priority(ticket_data.priority)
-
-    if ticket_data.assigned_technician is not None:
-        ticket.assigned_technician = ticket_data.assigned_technician
-
-    if ticket_data.status is not None:
-        new_status = normalize_status(ticket_data.status)
-        ticket.status = new_status
-
-        if new_status == "closed":
-            ticket.closed_at = datetime.now()
-        else:
-            ticket.closed_at = None
-
-    ticket.updated_at = datetime.now()
 
     db.commit()
-    db.refresh(ticket)
 
-    customer = (
-        db.query(Customer)
-        .filter(Customer.id == ticket.customer_id)
-        .first()
-    )
+    ticket = get_ticket_or_404(db, ticket_id)
+    customer = db.query(Customer).filter(Customer.id == ticket.get("customer_id")).first()
 
-    return serialize_ticket(ticket, customer)
+    return {
+        "status": "ok",
+        "message": "Ticket actualizado.",
+        "ticket": normalize_ticket(ticket, customer),
+    }
 
 
 @router.put("/tickets/{ticket_id}/start")
 def start_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "tecnico",
-        ])
-    ),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
 ):
-    ticket = (
-        db.query(Ticket)
-        .filter(Ticket.id == ticket_id)
-        .first()
-    )
+    ticket = update_ticket_status(db, ticket_id, "in_progress")
+    customer = db.query(Customer).filter(Customer.id == ticket.get("customer_id")).first()
 
-    if not ticket:
-        raise HTTPException(
-            status_code=404,
-            detail="Ticket no encontrado",
-        )
-
-    ticket.status = "in_progress"
-    ticket.updated_at = datetime.now()
-    ticket.closed_at = None
-
-    db.commit()
-    db.refresh(ticket)
-
-    customer = (
-        db.query(Customer)
-        .filter(Customer.id == ticket.customer_id)
-        .first()
-    )
-
-    return serialize_ticket(ticket, customer)
+    return {
+        "status": "ok",
+        "message": "Ticket marcado en proceso.",
+        "ticket": normalize_ticket(ticket, customer),
+    }
 
 
 @router.put("/tickets/{ticket_id}/close")
 def close_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "tecnico",
-        ])
-    ),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
 ):
-    ticket = (
-        db.query(Ticket)
-        .filter(Ticket.id == ticket_id)
-        .first()
-    )
+    ticket = update_ticket_status(db, ticket_id, "closed")
+    customer = db.query(Customer).filter(Customer.id == ticket.get("customer_id")).first()
 
-    if not ticket:
-        raise HTTPException(
-            status_code=404,
-            detail="Ticket no encontrado",
-        )
+    return {
+        "status": "ok",
+        "message": "Ticket cerrado.",
+        "ticket": normalize_ticket(ticket, customer),
+    }
 
-    ticket.status = "closed"
-    ticket.updated_at = datetime.now()
-    ticket.closed_at = datetime.now()
 
-    db.commit()
-    db.refresh(ticket)
+@router.put("/tickets/{ticket_id}/reopen")
+def reopen_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    ticket = update_ticket_status(db, ticket_id, "open")
+    customer = db.query(Customer).filter(Customer.id == ticket.get("customer_id")).first()
 
-    customer = (
-        db.query(Customer)
-        .filter(Customer.id == ticket.customer_id)
-        .first()
-    )
-
-    return serialize_ticket(ticket, customer)
+    return {
+        "status": "ok",
+        "message": "Ticket reabierto.",
+        "ticket": normalize_ticket(ticket, customer),
+    }

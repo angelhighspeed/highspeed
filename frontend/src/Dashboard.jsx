@@ -52,6 +52,12 @@ function Dashboard({ onLogout }) {
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
 
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("");
+  const [ticketPriorityFilter, setTicketPriorityFilter] = useState("");
+  const [ticketCustomerSearch, setTicketCustomerSearch] = useState("");
+  const [ticketFormOpen, setTicketFormOpen] = useState(false);
+
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
 
@@ -73,6 +79,9 @@ function Dashboard({ onLogout }) {
     customer_id: "",
     title: "",
     description: "",
+    priority: "medium",
+    assigned_technician: "",
+    category: "",
   });
 
   const [installationForm, setInstallationForm] = useState({
@@ -151,8 +160,24 @@ function Dashboard({ onLogout }) {
       }
 
       if (canViewTickets) {
-        const res = await axios.get(`${API}/tickets`, headers);
-        setTickets(Array.isArray(res.data) ? res.data : []);
+        const [ticketsRes, customersTicketsRes] = await Promise.all([
+          axios.get(`${API}/tickets`, headers),
+          axios
+            .get(`${API}/customers/list-all`, headers)
+            .catch(() => axios.get(`${API}/customers`, headers)),
+        ]);
+
+        setTickets(Array.isArray(ticketsRes.data) ? ticketsRes.data : []);
+
+        if (!canViewInvoices) {
+          setCustomers(
+            Array.isArray(customersTicketsRes.data)
+              ? customersTicketsRes.data
+              : Array.isArray(customersTicketsRes.data?.value)
+              ? customersTicketsRes.data.value
+              : []
+          );
+        }
       }
 
       if (canViewInstallations) {
@@ -490,28 +515,83 @@ function Dashboard({ onLogout }) {
   const createTicket = async (e) => {
     e.preventDefault();
 
-    await axios.post(
-      `${API}/tickets`,
-      {
-        customer_id: Number(ticketForm.customer_id),
-        title: ticketForm.title,
-        description: ticketForm.description,
-      },
-      getAuthHeaders()
-    );
+    try {
+      if (!ticketForm.customer_id) {
+        alert("Seleccioná un cliente para el ticket.");
+        return;
+      }
 
-    setTicketForm({
-      customer_id: "",
-      title: "",
-      description: "",
-    });
+      if (!ticketForm.title) {
+        alert("Ingresá el título del ticket.");
+        return;
+      }
 
-    await loadData();
+      await axios.post(
+        `${API}/tickets`,
+        {
+          customer_id: Number(ticketForm.customer_id),
+          title: ticketForm.title,
+          description: ticketForm.description,
+          priority: ticketForm.priority || "medium",
+          assigned_technician: ticketForm.assigned_technician || "",
+          category: ticketForm.category || "",
+        },
+        getAuthHeaders()
+      );
+
+      setTicketForm({
+        customer_id: "",
+        title: "",
+        description: "",
+        priority: "medium",
+        assigned_technician: "",
+        category: "",
+      });
+
+      setTicketCustomerSearch("");
+      setTicketFormOpen(false);
+
+      await loadData();
+
+      alert("Ticket creado correctamente.");
+    } catch (error) {
+      console.error("Error creando ticket:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo crear el ticket.\n\n${detail}`);
+    }
+  };
+
+  const startTicket = async (id) => {
+    try {
+      await axios.put(`${API}/tickets/${id}/start`, {}, getAuthHeaders());
+      await loadData();
+    } catch (error) {
+      alert("No se pudo poner el ticket en proceso.");
+    }
   };
 
   const closeTicket = async (id) => {
-    await axios.put(`${API}/tickets/${id}/close`, {}, getAuthHeaders());
-    await loadData();
+    try {
+      await axios.put(`${API}/tickets/${id}/close`, {}, getAuthHeaders());
+      await loadData();
+    } catch (error) {
+      alert("No se pudo cerrar el ticket.");
+    }
+  };
+
+  const reopenTicket = async (id) => {
+    try {
+      await axios.put(`${API}/tickets/${id}/reopen`, {}, getAuthHeaders());
+      await loadData();
+    } catch (error) {
+      alert("No se pudo reabrir el ticket.");
+    }
   };
 
   const updateInstallationForm = (field, value) => {
@@ -894,6 +974,75 @@ ${detail}`);
   const paidAmount = paidInvoices.reduce(
     (sum, invoice) => sum + Number(invoice.amount || 0),
     0
+  );
+
+  const getTicketCustomer = (customerId) => {
+    return customers.find(
+      (customer) => Number(customer.id) === Number(customerId)
+    );
+  };
+
+  const ticketCustomerMatches = customers
+    .filter((customer) => {
+      const status = String(customer.status || "").toLowerCase();
+
+      if (status === "deleted" || status === "pending_installation") {
+        return false;
+      }
+
+      const text = `
+        ${customer.id || ""}
+        ${customer.name || ""}
+        ${customer.last_name || ""}
+        ${customer.pppoe_username || ""}
+        ${customer.remote_address || ""}
+        ${customer.phone || ""}
+        ${customer.zone || ""}
+      `.toLowerCase();
+
+      return text.includes(ticketCustomerSearch.toLowerCase());
+    })
+    .slice(0, 8);
+
+  const selectedTicketCustomer = getTicketCustomer(ticketForm.customer_id);
+
+  const filteredTickets = tickets.filter((ticket) => {
+    const text = `
+      ${ticket.id || ""}
+      ${ticket.customer_id || ""}
+      ${ticket.customer_name || ""}
+      ${ticket.customer_pppoe_username || ""}
+      ${ticket.customer_ip || ""}
+      ${ticket.customer_phone || ""}
+      ${ticket.customer_zone || ""}
+      ${ticket.title || ""}
+      ${ticket.description || ""}
+      ${ticket.status || ""}
+      ${ticket.priority || ""}
+      ${ticket.assigned_technician || ""}
+      ${ticket.category || ""}
+    `.toLowerCase();
+
+    const matchesSearch = text.includes(ticketSearch.toLowerCase());
+
+    const matchesStatus = ticketStatusFilter
+      ? ticket.status === ticketStatusFilter
+      : ticket.status !== "closed";
+
+    const matchesPriority = ticketPriorityFilter
+      ? ticket.priority === ticketPriorityFilter
+      : true;
+
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  const openTickets = tickets.filter((ticket) => ticket.status === "open");
+  const inProgressTickets = tickets.filter(
+    (ticket) => ticket.status === "in_progress"
+  );
+  const closedTickets = tickets.filter((ticket) => ticket.status === "closed");
+  const highPriorityTickets = tickets.filter(
+    (ticket) => ticket.priority === "high"
   );
 
   const visibleInstallations = installations.filter(
@@ -1430,68 +1579,361 @@ ${detail}`);
         )}
 
         {section === "tickets" && (
-          <Module title="Tickets">
-            <Panel title="Crear ticket">
-              <form onSubmit={createTicket} className="grid grid-cols-1 gap-4">
-                <Input
-                  type="number"
-                  placeholder="Cliente ID"
-                  value={ticketForm.customer_id}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      customer_id: e.target.value,
-                    })
-                  }
+          <Module title="Tickets / Soporte">
+            <Panel title="Resumen de soporte">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <StatBox title="Total tickets" value={tickets.length} />
+
+                <StatBox
+                  title="Abiertos"
+                  value={openTickets.length}
+                  color="text-orange-500"
                 />
 
-                <Input
-                  placeholder="Título"
-                  value={ticketForm.title}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      title: e.target.value,
-                    })
-                  }
+                <StatBox
+                  title="En proceso"
+                  value={inProgressTickets.length}
+                  color="text-blue-600"
                 />
 
-                <textarea
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28"
-                  placeholder="Descripción"
-                  value={ticketForm.description}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      description: e.target.value,
-                    })
-                  }
+                <StatBox
+                  title="Cerrados"
+                  value={closedTickets.length}
+                  color="text-green-600"
                 />
 
-                <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500">
-                  Guardar ticket
-                </button>
-              </form>
+                <StatBox
+                  title="Alta prioridad"
+                  value={highPriorityTickets.length}
+                  color="text-red-600"
+                />
+              </div>
+            </Panel>
+
+            <Panel title="Tickets">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-950">
+                    🎫 Soporte técnico
+                  </h2>
+                  <p className="text-slate-500">
+                    Asociá cada ticket a un cliente para ver sus datos de red.
+                  </p>
+                </div>
+
+                {canManageTickets && (
+                  <button
+                    type="button"
+                    onClick={() => setTicketFormOpen(!ticketFormOpen)}
+                    className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500"
+                  >
+                    {ticketFormOpen ? "Cerrar formulario" : "➕ Nuevo ticket"}
+                  </button>
+                )}
+              </div>
+            </Panel>
+
+            {canManageTickets && ticketFormOpen && (
+              <Panel title="Crear ticket asociado a cliente">
+                <form onSubmit={createTicket} className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="mb-2 block font-bold text-slate-700">
+                        Buscar cliente
+                      </label>
+
+                      <input
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                        placeholder="Buscar por nombre, usuario PPPoE, IP, teléfono o zona..."
+                        value={ticketCustomerSearch}
+                        onChange={(e) => setTicketCustomerSearch(e.target.value)}
+                      />
+
+                      {ticketCustomerSearch && ticketCustomerMatches.length > 0 && (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {ticketCustomerMatches.map((customer) => (
+                              <button
+                                key={customer.id}
+                                type="button"
+                                onClick={() => {
+                                  setTicketForm({
+                                    ...ticketForm,
+                                    customer_id: customer.id,
+                                  });
+
+                                  setTicketCustomerSearch(
+                                    `${customer.name || ""} ${
+                                      customer.last_name || ""
+                                    }`.trim()
+                                  );
+                                }}
+                                className="rounded-lg bg-white p-3 text-left text-sm hover:bg-blue-50 border border-slate-200"
+                              >
+                                <b>
+                                  {customer.name} {customer.last_name}
+                                </b>
+                                <br />
+                                PPPoE: {customer.pppoe_username || "-"} · IP:{" "}
+                                {customer.remote_address || "-"}
+                                <br />
+                                Tel: {customer.phone || "-"} · Zona:{" "}
+                                {customer.zone || "-"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedTicketCustomer && (
+                      <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                        <h3 className="font-bold text-blue-900">
+                          Cliente seleccionado
+                        </h3>
+
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm text-slate-700">
+                          <p>
+                            <b>ID:</b> {selectedTicketCustomer.id}
+                          </p>
+                          <p>
+                            <b>Nombre:</b> {selectedTicketCustomer.name}{" "}
+                            {selectedTicketCustomer.last_name}
+                          </p>
+                          <p>
+                            <b>PPPoE:</b>{" "}
+                            {selectedTicketCustomer.pppoe_username || "-"}
+                          </p>
+                          <p>
+                            <b>IP:</b>{" "}
+                            {selectedTicketCustomer.remote_address || "-"}
+                          </p>
+                          <p>
+                            <b>Teléfono:</b>{" "}
+                            {selectedTicketCustomer.phone || "-"}
+                          </p>
+                          <p>
+                            <b>Zona:</b> {selectedTicketCustomer.zone || "-"}
+                          </p>
+                          <p>
+                            <b>Estado:</b>{" "}
+                            {selectedTicketCustomer.status || "-"}
+                          </p>
+                          <p>
+                            <b>Router:</b>{" "}
+                            {selectedTicketCustomer.router_id || "-"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <Input
+                      placeholder="Título del problema"
+                      value={ticketForm.title}
+                      onChange={(e) =>
+                        setTicketForm({
+                          ...ticketForm,
+                          title: e.target.value,
+                        })
+                      }
+                    />
+
+                    <select
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      value={ticketForm.priority}
+                      onChange={(e) =>
+                        setTicketForm({
+                          ...ticketForm,
+                          priority: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="low">Prioridad baja</option>
+                      <option value="medium">Prioridad media</option>
+                      <option value="high">Prioridad alta</option>
+                    </select>
+
+                    <Input
+                      placeholder="Técnico asignado"
+                      value={ticketForm.assigned_technician}
+                      onChange={(e) =>
+                        setTicketForm({
+                          ...ticketForm,
+                          assigned_technician: e.target.value,
+                        })
+                      }
+                    />
+
+                    <select
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      value={ticketForm.category}
+                      onChange={(e) =>
+                        setTicketForm({
+                          ...ticketForm,
+                          category: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">Tipo de problema</option>
+                      <option value="sin_internet">Sin internet</option>
+                      <option value="lento">Internet lento</option>
+                      <option value="corte">Corte intermitente</option>
+                      <option value="router_cliente">Router cliente</option>
+                      <option value="facturacion">Facturación</option>
+                      <option value="otro">Otro</option>
+                    </select>
+
+                    <textarea
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28 md:col-span-2"
+                      placeholder="Descripción del problema"
+                      value={ticketForm.description}
+                      onChange={(e) =>
+                        setTicketForm({
+                          ...ticketForm,
+                          description: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500">
+                      💾 Guardar ticket
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTicketFormOpen(false)}
+                      className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-700 hover:bg-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </Panel>
+            )}
+
+            <Panel title="Buscar y filtrar tickets">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <input
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
+                  placeholder="Buscar por cliente, PPPoE, IP, técnico, título o descripción..."
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                />
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={ticketStatusFilter}
+                  onChange={(e) => setTicketStatusFilter(e.target.value)}
+                >
+                  <option value="">Activos sin cerrar</option>
+                  <option value="open">Abiertos</option>
+                  <option value="in_progress">En proceso</option>
+                  <option value="closed">Cerrados</option>
+                </select>
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={ticketPriorityFilter}
+                  onChange={(e) => setTicketPriorityFilter(e.target.value)}
+                >
+                  <option value="">Todas las prioridades</option>
+                  <option value="high">Alta</option>
+                  <option value="medium">Media</option>
+                  <option value="low">Baja</option>
+                </select>
+              </div>
             </Panel>
 
             <GridList
-              items={tickets}
+              items={filteredTickets}
               render={(ticket) => (
                 <Panel
                   title={`Ticket #${ticket.id} - ${ticket.title}`}
                   key={ticket.id}
                 >
-                  <p>Cliente ID: {ticket.customer_id}</p>
-                  <p>{ticket.description}</p>
-                  <p>Estado: {ticket.status}</p>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div className="lg:col-span-2">
+                      <p className="mb-3 whitespace-pre-wrap">
+                        {ticket.description || "Sin descripción"}
+                      </p>
 
-                  {ticket.status === "open" && canManageTickets && (
-                    <button
-                      className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
-                      onClick={() => closeTicket(ticket.id)}
-                    >
-                      Cerrar ticket
-                    </button>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-lg bg-slate-100 px-3 py-1 font-bold">
+                          Estado: {ticket.status}
+                        </span>
+
+                        <span className="rounded-lg bg-slate-100 px-3 py-1 font-bold">
+                          Prioridad: {ticket.priority || "medium"}
+                        </span>
+
+                        <span className="rounded-lg bg-slate-100 px-3 py-1 font-bold">
+                          Técnico: {ticket.assigned_technician || "-"}
+                        </span>
+
+                        <span className="rounded-lg bg-slate-100 px-3 py-1 font-bold">
+                          Tipo: {ticket.category || "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                      <h3 className="font-bold text-slate-900 mb-2">
+                        Datos del cliente
+                      </h3>
+
+                      <p>
+                        <b>ID:</b> {ticket.customer_id || "-"}
+                      </p>
+                      <p>
+                        <b>Nombre:</b> {ticket.customer_name || "-"}
+                      </p>
+                      <p>
+                        <b>PPPoE:</b>{" "}
+                        {ticket.customer_pppoe_username || "-"}
+                      </p>
+                      <p>
+                        <b>IP:</b> {ticket.customer_ip || "-"}
+                      </p>
+                      <p>
+                        <b>Teléfono:</b> {ticket.customer_phone || "-"}
+                      </p>
+                      <p>
+                        <b>Zona:</b> {ticket.customer_zone || "-"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {canManageTickets && (
+                    <div className="flex flex-wrap gap-3 mt-5">
+                      {ticket.status === "open" && (
+                        <button
+                          className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
+                          onClick={() => startTicket(ticket.id)}
+                        >
+                          En proceso
+                        </button>
+                      )}
+
+                      {ticket.status !== "closed" && (
+                        <button
+                          className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
+                          onClick={() => closeTicket(ticket.id)}
+                        >
+                          Cerrar
+                        </button>
+                      )}
+
+                      {ticket.status === "closed" && (
+                        <button
+                          className="rounded-xl bg-orange-500 px-4 py-2 font-bold text-white hover:bg-orange-400"
+                          onClick={() => reopenTicket(ticket.id)}
+                        >
+                          Reabrir
+                        </button>
+                      )}
+                    </div>
                   )}
                 </Panel>
               )}
