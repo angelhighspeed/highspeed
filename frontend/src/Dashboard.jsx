@@ -42,6 +42,11 @@ function Dashboard({ onLogout }) {
   const [tickets, setTickets] = useState([]);
   const [installations, setInstallations] = useState([]);
 
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("");
+  const [ticketPriorityFilter, setTicketPriorityFilter] = useState("");
+  const [ticketCustomerSearch, setTicketCustomerSearch] = useState("");
+
   const [cashboxDate, setCashboxDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
@@ -81,6 +86,8 @@ function Dashboard({ onLogout }) {
     customer_id: "",
     title: "",
     description: "",
+    priority: "medium",
+    assigned_technician: "",
   });
 
   const [installationForm, setInstallationForm] = useState({
@@ -256,6 +263,13 @@ function Dashboard({ onLogout }) {
       if (canViewTickets) {
         const res = await axios.get(`${API}/tickets`, headers);
         setTickets(Array.isArray(res.data) ? res.data : []);
+
+        if (!canViewInvoices) {
+          const customersRes = await axios.get(`${API}/customers`, headers);
+          setCustomers(
+            Array.isArray(customersRes.data) ? customersRes.data : []
+          );
+        }
       }
 
       if (canViewInstallations) {
@@ -702,6 +716,8 @@ Nota: ${paymentNote || "-"}`
         customer_id: Number(ticketForm.customer_id),
         title: ticketForm.title,
         description: ticketForm.description,
+        priority: ticketForm.priority || "medium",
+        assigned_technician: ticketForm.assigned_technician || "",
       },
       getAuthHeaders()
     );
@@ -710,8 +726,17 @@ Nota: ${paymentNote || "-"}`
       customer_id: "",
       title: "",
       description: "",
+      priority: "medium",
+      assigned_technician: "",
     });
 
+    setTicketCustomerSearch("");
+
+    await loadData();
+  };
+
+  const startTicket = async (id) => {
+    await axios.put(`${API}/tickets/${id}/start`, {}, getAuthHeaders());
     await loadData();
   };
 
@@ -864,6 +889,72 @@ Nota: ${paymentNote || "-"}`
 
   const customerFinanceUpToDate = customerFinanceCustomers.filter(
     (customer) => customer.account_status === "up_to_date"
+  );
+
+
+
+  const getCustomerFullName = (customer) => {
+    if (!customer) return "";
+
+    return `${customer.name || ""} ${customer.last_name || ""}`.trim();
+  };
+
+  const selectedTicketCustomer = customers.find(
+    (customer) => Number(customer.id) === Number(ticketForm.customer_id)
+  );
+
+  const filteredTicketCustomerOptions = customers
+    .filter((customer) => {
+      const text = `
+        ${customer.id || ""}
+        ${customer.name || ""}
+        ${customer.last_name || ""}
+        ${customer.pppoe_username || ""}
+        ${customer.remote_address || ""}
+        ${customer.phone || ""}
+        ${customer.zone || ""}
+      `.toLowerCase();
+
+      return text.includes(ticketCustomerSearch.toLowerCase());
+    })
+    .slice(0, 8);
+
+  const filteredTickets = tickets.filter((ticket) => {
+    const text = `
+      ${ticket.id || ""}
+      ${ticket.customer_id || ""}
+      ${ticket.customer_name || ""}
+      ${ticket.customer_pppoe_username || ""}
+      ${ticket.customer_ip || ""}
+      ${ticket.customer_phone || ""}
+      ${ticket.customer_zone || ""}
+      ${ticket.title || ""}
+      ${ticket.description || ""}
+      ${ticket.status || ""}
+      ${ticket.priority || ""}
+      ${ticket.assigned_technician || ""}
+    `.toLowerCase();
+
+    const matchesSearch = text.includes(ticketSearch.toLowerCase());
+
+    const matchesStatus = ticketStatusFilter
+      ? ticket.status === ticketStatusFilter
+      : true;
+
+    const matchesPriority = ticketPriorityFilter
+      ? ticket.priority === ticketPriorityFilter
+      : true;
+
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  const openTickets = tickets.filter((ticket) => ticket.status === "open");
+  const inProgressTickets = tickets.filter(
+    (ticket) => ticket.status === "in_progress"
+  );
+  const closedTickets = tickets.filter((ticket) => ticket.status === "closed");
+  const highPriorityTickets = tickets.filter(
+    (ticket) => ticket.priority === "high"
   );
 
   const networkData = [
@@ -2089,69 +2180,331 @@ Nota: ${paymentNote || "-"}`
         )}
 
         {section === "tickets" && (
-          <Module title="Tickets">
-            <Panel title="Crear ticket">
-              <form onSubmit={createTicket} className="grid grid-cols-1 gap-4">
-                <Input
-                  type="number"
-                  placeholder="Cliente ID"
-                  value={ticketForm.customer_id}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      customer_id: e.target.value,
-                    })
-                  }
+          <Module title="Tickets / Soporte">
+            <Panel title="Resumen de soporte">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <StatBox title="Total tickets" value={tickets.length} />
+
+                <StatBox
+                  title="Abiertos"
+                  value={openTickets.length}
+                  color="text-orange-500"
                 />
 
-                <Input
-                  placeholder="Título"
-                  value={ticketForm.title}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      title: e.target.value,
-                    })
-                  }
+                <StatBox
+                  title="En proceso"
+                  value={inProgressTickets.length}
+                  color="text-blue-600"
                 />
 
-                <textarea
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28"
-                  placeholder="Descripción"
-                  value={ticketForm.description}
-                  onChange={(e) =>
-                    setTicketForm({
-                      ...ticketForm,
-                      description: e.target.value,
-                    })
-                  }
+                <StatBox
+                  title="Cerrados"
+                  value={closedTickets.length}
+                  color="text-green-600"
                 />
 
-                <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500">
-                  Guardar ticket
-                </button>
-              </form>
+                <StatBox
+                  title="Alta prioridad"
+                  value={highPriorityTickets.length}
+                  color="text-red-600"
+                />
+              </div>
             </Panel>
 
+            <Panel title="Buscar y filtrar tickets">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <input
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
+                  placeholder="Buscar por cliente, PPPoE, IP, técnico, título o descripción..."
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                />
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={ticketStatusFilter}
+                  onChange={(e) => setTicketStatusFilter(e.target.value)}
+                >
+                  <option value="">Todos los estados</option>
+                  <option value="open">Abiertos</option>
+                  <option value="in_progress">En proceso</option>
+                  <option value="closed">Cerrados</option>
+                </select>
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={ticketPriorityFilter}
+                  onChange={(e) => setTicketPriorityFilter(e.target.value)}
+                >
+                  <option value="">Todas las prioridades</option>
+                  <option value="low">Baja</option>
+                  <option value="medium">Media</option>
+                  <option value="high">Alta</option>
+                </select>
+              </div>
+            </Panel>
+
+            {canManageTickets && (
+              <Panel title="Crear ticket">
+                <form
+                  onSubmit={createTicket}
+                  className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                >
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">
+                      Buscar cliente con problema
+                    </label>
+
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      placeholder="Buscar por nombre, usuario PPPoE, IP, teléfono o zona..."
+                      value={ticketCustomerSearch}
+                      onChange={(e) => setTicketCustomerSearch(e.target.value)}
+                    />
+
+                    {selectedTicketCustomer && (
+                      <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                        <p className="font-bold text-slate-900">
+                          Cliente seleccionado:{" "}
+                          {getCustomerFullName(selectedTicketCustomer) ||
+                            `ID ${selectedTicketCustomer.id}`}
+                        </p>
+
+                        <p className="text-sm text-slate-600">
+                          ID {selectedTicketCustomer.id} · Usuario:{" "}
+                          {selectedTicketCustomer.pppoe_username || "-"} · IP:{" "}
+                          {selectedTicketCustomer.remote_address || "-"} · Zona:{" "}
+                          {selectedTicketCustomer.zone || "-"}
+                        </p>
+
+                        <button
+                          type="button"
+                          className="mt-3 rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-600"
+                          onClick={() => {
+                            setTicketForm({
+                              ...ticketForm,
+                              customer_id: "",
+                            });
+                            setTicketCustomerSearch("");
+                          }}
+                        >
+                          Cambiar cliente
+                        </button>
+                      </div>
+                    )}
+
+                    {ticketCustomerSearch && !selectedTicketCustomer && (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                        {filteredTicketCustomerOptions.length === 0 && (
+                          <div className="p-4 text-sm text-slate-500">
+                            No se encontraron clientes.
+                          </div>
+                        )}
+
+                        {filteredTicketCustomerOptions.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            className="w-full border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
+                            onClick={() => {
+                              setTicketForm({
+                                ...ticketForm,
+                                customer_id: customer.id,
+                              });
+
+                              setTicketCustomerSearch(
+                                `${
+                                  getCustomerFullName(customer) ||
+                                  `Cliente ${customer.id}`
+                                } - ${customer.pppoe_username || ""}`
+                              );
+                            }}
+                          >
+                            <p className="font-bold text-slate-900">
+                              {getCustomerFullName(customer) ||
+                                `Cliente ID ${customer.id}`}
+                            </p>
+
+                            <p className="text-xs text-slate-500">
+                              ID {customer.id} · Usuario:{" "}
+                              {customer.pppoe_username || "-"} · IP:{" "}
+                              {customer.remote_address || "-"} · Tel:{" "}
+                              {customer.phone || "-"} · Zona:{" "}
+                              {customer.zone || "-"}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <Input
+                    placeholder="Título"
+                    value={ticketForm.title}
+                    onChange={(e) =>
+                      setTicketForm({
+                        ...ticketForm,
+                        title: e.target.value,
+                      })
+                    }
+                  />
+
+                  <select
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                    value={ticketForm.priority}
+                    onChange={(e) =>
+                      setTicketForm({
+                        ...ticketForm,
+                        priority: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="low">Prioridad baja</option>
+                    <option value="medium">Prioridad media</option>
+                    <option value="high">Prioridad alta</option>
+                  </select>
+
+                  <Input
+                    placeholder="Técnico asignado"
+                    value={ticketForm.assigned_technician}
+                    onChange={(e) =>
+                      setTicketForm({
+                        ...ticketForm,
+                        assigned_technician: e.target.value,
+                      })
+                    }
+                  />
+
+                  <textarea
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28 md:col-span-2"
+                    placeholder="Descripción"
+                    value={ticketForm.description}
+                    onChange={(e) =>
+                      setTicketForm({
+                        ...ticketForm,
+                        description: e.target.value,
+                      })
+                    }
+                  />
+
+                  <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-500 md:col-span-2">
+                    Guardar ticket
+                  </button>
+                </form>
+              </Panel>
+            )}
+
             <GridList
-              items={tickets}
+              items={filteredTickets}
               render={(ticket) => (
                 <Panel
                   title={`Ticket #${ticket.id} - ${ticket.title}`}
                   key={ticket.id}
                 >
-                  <p>Cliente ID: {ticket.customer_id}</p>
-                  <p>{ticket.description}</p>
-                  <p>Estado: {ticket.status}</p>
+                  <div className="space-y-2">
+                    <p>
+                      <b>Cliente:</b>{" "}
+                      {ticket.customer_name || `ID ${ticket.customer_id}`}
+                    </p>
 
-                  {ticket.status === "open" && canManageTickets && (
-                    <button
-                      className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
-                      onClick={() => closeTicket(ticket.id)}
-                    >
-                      Cerrar ticket
-                    </button>
-                  )}
+                    <p>
+                      <b>Usuario PPPoE:</b>{" "}
+                      {ticket.customer_pppoe_username || "-"}
+                    </p>
+
+                    <p>
+                      <b>IP:</b> {ticket.customer_ip || "-"}
+                    </p>
+
+                    <p>
+                      <b>Teléfono:</b> {ticket.customer_phone || "-"}
+                    </p>
+
+                    <p>
+                      <b>Zona:</b> {ticket.customer_zone || "-"}
+                    </p>
+
+                    <p>
+                      <b>Técnico:</b>{" "}
+                      {ticket.assigned_technician || "Sin asignar"}
+                    </p>
+
+                    <p>
+                      <b>Prioridad:</b>{" "}
+                      <span
+                        className={`rounded-md px-3 py-1 text-xs font-bold ${
+                          ticket.priority === "high"
+                            ? "bg-red-600 text-white"
+                            : ticket.priority === "medium"
+                            ? "bg-orange-500 text-white"
+                            : "bg-green-600 text-white"
+                        }`}
+                      >
+                        {ticket.priority === "high"
+                          ? "Alta"
+                          : ticket.priority === "medium"
+                          ? "Media"
+                          : "Baja"}
+                      </span>
+                    </p>
+
+                    <p>
+                      <b>Estado:</b>{" "}
+                      <span
+                        className={`rounded-md px-3 py-1 text-xs font-bold ${
+                          ticket.status === "closed"
+                            ? "bg-green-600 text-white"
+                            : ticket.status === "in_progress"
+                            ? "bg-blue-600 text-white"
+                            : "bg-orange-500 text-white"
+                        }`}
+                      >
+                        {ticket.status === "closed"
+                          ? "Cerrado"
+                          : ticket.status === "in_progress"
+                          ? "En proceso"
+                          : "Abierto"}
+                      </span>
+                    </p>
+
+                    <p>
+                      <b>Creado:</b> {ticket.created_at || "-"}
+                    </p>
+
+                    <p>
+                      <b>Actualizado:</b> {ticket.updated_at || "-"}
+                    </p>
+
+                    {ticket.closed_at && (
+                      <p>
+                        <b>Cerrado:</b> {ticket.closed_at}
+                      </p>
+                    )}
+
+                    <p className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                      {ticket.description || "Sin descripción"}
+                    </p>
+
+                    {canManageTickets && ticket.status !== "closed" && (
+                      <div className="flex flex-wrap gap-3 mt-4">
+                        {ticket.status === "open" && (
+                          <button
+                            className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
+                            onClick={() => startTicket(ticket.id)}
+                          >
+                            Pasar a en proceso
+                          </button>
+                        )}
+
+                        <button
+                          className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
+                          onClick={() => closeTicket(ticket.id)}
+                        >
+                          Cerrar ticket
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </Panel>
               )}
             />
