@@ -151,7 +151,7 @@ function Dashboard({ onLogout }) {
 
       if (canViewInvoices) {
         const [invoicesRes, customersRes] = await Promise.all([
-          axios.get(`${API}/invoices`, headers),
+          axios.get(`${API}/invoice-promises/invoices`, headers).catch(() => axios.get(`${API}/invoices`, headers)),
           axios.get(`${API}/customers`, headers),
         ]);
 
@@ -291,6 +291,77 @@ function Dashboard({ onLogout }) {
   const payInvoice = async (id) => {
     await axios.put(`${API}/invoices/${id}/pay`, {}, getAuthHeaders());
     await loadData();
+  };
+
+  const setPaymentPromise = async (invoice) => {
+    const currentDate = invoice.payment_promise_date || "";
+    const promiseDate = window.prompt(
+      "Fecha de promesa de pago. Formato recomendado: AAAA-MM-DD",
+      currentDate
+    );
+
+    if (promiseDate === null) return;
+
+    if (!promiseDate.trim()) {
+      alert("Ingresá una fecha válida.");
+      return;
+    }
+
+    const currentNote = invoice.payment_promise_note || "";
+    const note = window.prompt(
+      "Nota de la promesa de pago",
+      currentNote || "Cliente avisa que paga en unos días"
+    );
+
+    if (note === null) return;
+
+    try {
+      await axios.put(
+        `${API}/invoice-promises/invoices/${invoice.id}`,
+        {
+          promise_date: promiseDate.trim(),
+          note: note || "",
+        },
+        getAuthHeaders()
+      );
+
+      await loadData();
+
+      alert("Promesa de pago registrada.");
+    } catch (error) {
+      console.error("Error registrando promesa de pago:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo registrar la promesa de pago.
+
+${detail}`);
+    }
+  };
+
+  const clearPaymentPromise = async (invoiceId) => {
+    const ok = window.confirm("¿Cancelar la promesa de pago de esta factura?");
+
+    if (!ok) return;
+
+    try {
+      await axios.put(
+        `${API}/invoice-promises/invoices/${invoiceId}/clear`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadData();
+
+      alert("Promesa de pago cancelada.");
+    } catch (error) {
+      console.error("Error cancelando promesa de pago:", error);
+      alert("No se pudo cancelar la promesa de pago.");
+    }
   };
 
   const exportInvoicesExcel = async (status = "") => {
@@ -1601,6 +1672,20 @@ ${detail}`);
                       </span>
                     </p>
 
+                    {invoice.payment_promise_status === "active" && (
+                      <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                        <p className="font-bold">Promesa de pago activa</p>
+                        <p>
+                          <b>Fecha prometida:</b>{" "}
+                          {invoice.payment_promise_date || "-"}
+                        </p>
+                        <p>
+                          <b>Nota:</b>{" "}
+                          {invoice.payment_promise_note || "-"}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap gap-3 mt-4">
                       <button
                         className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
@@ -1608,6 +1693,27 @@ ${detail}`);
                       >
                         Descargar comprobante PDF
                       </button>
+
+                      {invoice.status === "pending" && canManageInvoices && (
+                        <button
+                          className="rounded-xl bg-indigo-600 px-4 py-2 font-bold text-white hover:bg-indigo-500"
+                          onClick={() => setPaymentPromise(invoice)}
+                        >
+                          {invoice.payment_promise_status === "active"
+                            ? "Actualizar promesa"
+                            : "Promesa de pago"}
+                        </button>
+                      )}
+
+                      {invoice.payment_promise_status === "active" &&
+                        canManageInvoices && (
+                          <button
+                            className="rounded-xl bg-slate-700 px-4 py-2 font-bold text-white hover:bg-slate-600"
+                            onClick={() => clearPaymentPromise(invoice.id)}
+                          >
+                            Cancelar promesa
+                          </button>
+                        )}
 
                       {invoice.status === "pending" && canManageInvoices && (
                         <button

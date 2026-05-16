@@ -6,6 +6,8 @@ import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from reportlab.lib import colors
@@ -22,7 +24,7 @@ from reportlab.platypus import (
 )
 from reportlab.pdfgen.canvas import Canvas
 
-from app.database import SessionLocal
+from app.database import SessionLocal, engine
 from app.auth.dependencies import require_roles
 from app.models.invoice_model import Invoice
 from app.models.customer_model import Customer
@@ -40,6 +42,71 @@ COMPANY_DATA = {
     "address": "Santa Fe entre calle 11 y 12",
     "email": "",
 }
+
+
+class PaymentPromiseRequest(BaseModel):
+    promise_date: str
+    note: str = ""
+
+
+def now_string():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_table_columns(table_name: str):
+    dialect = engine.dialect.name
+
+    with engine.begin() as conn:
+        if dialect == "sqlite":
+            rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+            return [row[1] for row in rows]
+
+        rows = conn.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                """
+            ),
+            {"table_name": table_name},
+        ).fetchall()
+
+        return [row[0] for row in rows]
+
+
+def ensure_invoice_promise_columns():
+    dialect = engine.dialect.name
+
+    try:
+        if dialect == "postgresql":
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_promise_date VARCHAR"))
+                conn.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_promise_note TEXT"))
+                conn.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_promise_status VARCHAR DEFAULT ''"))
+                conn.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_promise_created_at VARCHAR"))
+            return
+
+        if dialect == "sqlite":
+            columns = get_table_columns("invoices")
+
+            alters = {
+                "payment_promise_date": "ALTER TABLE invoices ADD COLUMN payment_promise_date VARCHAR",
+                "payment_promise_note": "ALTER TABLE invoices ADD COLUMN payment_promise_note TEXT",
+                "payment_promise_status": "ALTER TABLE invoices ADD COLUMN payment_promise_status VARCHAR DEFAULT ''",
+                "payment_promise_created_at": "ALTER TABLE invoices ADD COLUMN payment_promise_created_at VARCHAR",
+            }
+
+            with engine.begin() as conn:
+                for column, statement in alters.items():
+                    if column not in columns:
+                        conn.execute(text(statement))
+
+    except Exception as e:
+        print("No se pudieron asegurar columnas de promesa de pago:", e)
+
+
+ensure_invoice_promise_columns()
 
 
 def get_db():
@@ -465,6 +532,207 @@ def get_invoice_and_customer(db: Session, invoice_id: int):
     )
 
     return invoice, customer
+
+
+
+
+def serialize_customer_for_invoice(customer: Customer | None):
+    if not customer:
+        return {
+            "customer_name": "",
+            "customer_pppoe_username": "",
+            "customer_ip": "",
+            "customer_phone": "",
+            "customer_zone": "",
+            "customer_status": "",
+        }
+
+    customer_name = f"{get_first_attr(customer, ['name', 'first_name', 'nombre'], '') or ''} {get_first_attr(customer, ['last_name', 'lastname', 'apellido'], '') or ''}".strip()
+
+    return {
+        "customer_name": customer_name,
+        "customer_pppoe_username": get_first_attr(customer, ["pppoe_username", "username_pppoe", "username"], ""),
+        "customer_ip": get_first_attr(customer, ["remote_address", "ip", "ip_address"], ""),
+        "customer_phone": get_first_attr(customer, ["phone", "telefono", "cellphone", "mobile"], ""),
+        "customer_zone": get_first_attr(customer, ["zone", "zona", "localidad"], ""),
+        "customer_status": get_first_attr(customer, ["status", "estado", "state"], ""),
+    }
+
+
+def normalize_invoice_row(row, customer: Customer | None = None):
+    item = dict(row)
+
+    for field in [
+        "payment_promise_date",
+        "payment_promise_note",
+        "payment_promise_status",
+        "payment_promise_created_at",
+    ]:
+        if field not in item:
+            item[field] = ""
+
+    item.update(serialize_customer_for_invoice(customer))
+
+    return item
+
+
+def get_invoice_row_or_404(db: Session, invoice_id: int):
+    ensure_invoice_promise_columns()
+
+    rows = db.execute(
+        text("SELECT * FROM invoices WHERE id = :id"),
+        {"id": invoice_id},
+    ).mappings().all()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    return dict(rows[0])
+
+
+@router.get("/invoice-promises/invoices")
+def get_invoices_with_payment_promises(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "cobrador"])),
+):
+    ensure_invoice_promise_columns()
+
+    rows = db.execute(
+        text("SELECT * FROM invoices ORDER BY id DESC")
+    ).mappings().all()
+
+    customer_ids = [
+        row.get("customer_id")
+        for row in rows
+        if row.get("customer_id") is not None
+    ]
+
+    customers_by_id = {}
+
+    if customer_ids:
+        customers = (
+            db.query(Customer)
+            .filter(Customer.id.in_(customer_ids))
+            .all()
+        )
+
+        customers_by_id = {
+            customer.id: customer for customer in customers
+        }
+
+    return [
+        normalize_invoice_row(row, customers_by_id.get(row.get("customer_id")))
+        for row in rows
+    ]
+
+
+@router.put("/invoice-promises/invoices/{invoice_id}")
+def set_invoice_payment_promise(
+    invoice_id: int,
+    data: PaymentPromiseRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "cobrador"])),
+):
+    ensure_invoice_promise_columns()
+
+    if not data.promise_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Ingresá la fecha de promesa de pago.",
+        )
+
+    invoice = (
+        db.query(Invoice)
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    columns = get_table_columns("invoices")
+
+    payload = {
+        "payment_promise_date": data.promise_date,
+        "payment_promise_note": data.note or "",
+        "payment_promise_status": "active",
+        "payment_promise_created_at": now_string(),
+    }
+
+    payload = {
+        key: value
+        for key, value in payload.items()
+        if key in columns
+    }
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in payload.keys()])
+
+    db.execute(
+        text(f"UPDATE invoices SET {set_clause} WHERE id = :id"),
+        {"id": invoice_id, **payload},
+    )
+
+    db.commit()
+
+    row = get_invoice_row_or_404(db, invoice_id)
+    customer = db.query(Customer).filter(Customer.id == row.get("customer_id")).first()
+
+    return {
+        "status": "ok",
+        "message": "Promesa de pago registrada.",
+        "invoice": normalize_invoice_row(row, customer),
+    }
+
+
+@router.put("/invoice-promises/invoices/{invoice_id}/clear")
+def clear_invoice_payment_promise(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "cobrador"])),
+):
+    ensure_invoice_promise_columns()
+
+    invoice = (
+        db.query(Invoice)
+        .filter(Invoice.id == invoice_id)
+        .first()
+    )
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    columns = get_table_columns("invoices")
+
+    payload = {
+        "payment_promise_date": "",
+        "payment_promise_note": "",
+        "payment_promise_status": "",
+        "payment_promise_created_at": "",
+    }
+
+    payload = {
+        key: value
+        for key, value in payload.items()
+        if key in columns
+    }
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in payload.keys()])
+
+    db.execute(
+        text(f"UPDATE invoices SET {set_clause} WHERE id = :id"),
+        {"id": invoice_id, **payload},
+    )
+
+    db.commit()
+
+    row = get_invoice_row_or_404(db, invoice_id)
+    customer = db.query(Customer).filter(Customer.id == row.get("customer_id")).first()
+
+    return {
+        "status": "ok",
+        "message": "Promesa de pago cancelada.",
+        "invoice": normalize_invoice_row(row, customer),
+    }
 
 
 @router.get("/invoices/{invoice_id}/comprobante-pdf")
