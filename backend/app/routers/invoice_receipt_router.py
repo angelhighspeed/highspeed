@@ -1,5 +1,5 @@
 from io import BytesIO
-from datetime import date, datetime
+from datetime import datetime, date
 from pathlib import Path
 import re
 import unicodedata
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
@@ -19,7 +20,6 @@ from reportlab.platypus import (
     TableStyle,
     Image,
 )
-from reportlab.lib.units import cm
 from reportlab.pdfgen.canvas import Canvas
 
 from app.database import SessionLocal
@@ -38,6 +38,7 @@ COMPANY_DATA = {
     "locality": "Ituzaingo, Corrientes",
     "phone": "3786494305",
     "address": "Santa Fe entre calle 11 y 12",
+    "email": "",
 }
 
 
@@ -48,6 +49,84 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_first_attr(obj, names, default=None):
+    if obj is None:
+        return default
+
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+
+            if value not in [None, ""]:
+                return value
+
+    return default
+
+
+def clean_filename(value: str):
+    value = str(value or "archivo")
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+    value = value.strip("_")
+
+    return value or "archivo"
+
+
+def format_money(value):
+    try:
+        number = float(value or 0)
+    except Exception:
+        number = 0
+
+    return f"$ {number:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def format_date(value):
+    if value in [None, ""]:
+        return "-"
+
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y %H:%M")
+
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+
+    value_str = str(value)
+
+    # Maneja valores tipo 2026-05-15 o 2026-05-15 19:34:09.
+    for fmt in [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+    ]:
+        try:
+            parsed = datetime.strptime(value_str[:19], fmt)
+            if "%H" in fmt:
+                return parsed.strftime("%d/%m/%Y %H:%M")
+            return parsed.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+
+    return value_str
+
+
+def invoice_status_label(status):
+    status = str(status or "").lower()
+
+    if status == "paid":
+        return "Pagada"
+
+    if status == "cancelled":
+        return "Cancelada"
+
+    if status == "overdue":
+        return "Vencida"
+
+    return "Pendiente"
 
 
 def find_logo_path():
@@ -73,73 +152,7 @@ def find_logo_path():
     return None
 
 
-def format_date(value):
-    if value is None:
-        return "-"
-
-    if isinstance(value, date):
-        return value.strftime("%d/%m/%Y")
-
-    if isinstance(value, datetime):
-        return value.strftime("%d/%m/%Y")
-
-    return str(value)
-
-
-def format_datetime(value):
-    if value is None:
-        return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-
-    if isinstance(value, datetime):
-        return value.strftime("%d/%m/%Y %H:%M:%S")
-
-    if isinstance(value, date):
-        return value.strftime("%d/%m/%Y")
-
-    return str(value)
-
-
-def money(value):
-    try:
-        return f"${float(value or 0):,.2f}"
-    except Exception:
-        return "$0.00"
-
-
-def format_status(status):
-    if status == "paid":
-        return "PAGADO"
-
-    if status == "pending":
-        return "PENDIENTE"
-
-    return str(status or "-").upper()
-
-
-def safe_filename(value):
-    if not value:
-        return "cliente"
-
-    value = str(value).strip().lower()
-    value = unicodedata.normalize("NFKD", value)
-    value = "".join(c for c in value if not unicodedata.combining(c))
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = value.strip("_")
-
-    return value or "cliente"
-
-
-def get_payment_date(invoice):
-    for field in ["paid_at", "payment_date", "paid_date", "updated_at"]:
-        value = getattr(invoice, field, None)
-
-        if value:
-            return value
-
-    return datetime.now()
-
-
-def draw_receipt_background(canvas: Canvas, doc):
+def receipt_background(canvas: Canvas, doc):
     page_width, page_height = A4
 
     canvas.saveState()
@@ -148,104 +161,291 @@ def draw_receipt_background(canvas: Canvas, doc):
     canvas.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
     canvas.setFillColor(colors.HexColor("#2563EB"))
-    path = canvas.beginPath()
-    path.moveTo(page_width - 4.5 * cm, page_height)
-    path.lineTo(page_width, page_height)
-    path.lineTo(page_width, page_height - 6 * cm)
-    path.curveTo(
-        page_width - 1.5 * cm,
-        page_height - 4.5 * cm,
-        page_width - 3.5 * cm,
-        page_height - 2.3 * cm,
-        page_width - 4.5 * cm,
-        page_height,
-    )
-    canvas.drawPath(path, fill=1, stroke=0)
+    canvas.rect(0, page_height - 1.15 * cm, page_width, 1.15 * cm, fill=1, stroke=0)
 
-    canvas.setFillColor(colors.HexColor("#DBEAFE"))
-    path = canvas.beginPath()
-    path.moveTo(page_width - 6.3 * cm, page_height)
-    path.lineTo(page_width - 3.6 * cm, page_height)
-    path.curveTo(
-        page_width - 4.3 * cm,
-        page_height - 1.2 * cm,
-        page_width - 5.2 * cm,
-        page_height - 2.1 * cm,
-        page_width - 6.1 * cm,
-        page_height - 3.2 * cm,
-    )
-    path.curveTo(
-        page_width - 6.7 * cm,
-        page_height - 2 * cm,
-        page_width - 6.9 * cm,
-        page_height - 0.8 * cm,
-        page_width - 6.3 * cm,
-        page_height,
-    )
-    canvas.drawPath(path, fill=1, stroke=0)
+    canvas.setFillColor(colors.HexColor("#E0F2FE"))
+    canvas.circle(page_width - 1.3 * cm, page_height - 1.2 * cm, 1.35 * cm, fill=1, stroke=0)
 
-    canvas.setFillColor(colors.HexColor("#F97316"))
-    path = canvas.beginPath()
-    path.moveTo(page_width - 3.2 * cm, 0)
-    path.lineTo(page_width, 0)
-    path.lineTo(page_width, 2.8 * cm)
-    path.curveTo(
-        page_width - 1.1 * cm,
-        2.1 * cm,
-        page_width - 2.2 * cm,
-        1.3 * cm,
-        page_width - 3.2 * cm,
-        0,
-    )
-    canvas.drawPath(path, fill=1, stroke=0)
+    canvas.setFillColor(colors.HexColor("#F8FAFC"))
+    canvas.rect(0, 0, page_width, 1.15 * cm, fill=1, stroke=0)
 
-    canvas.setStrokeColor(colors.HexColor("#2563EB"))
-    canvas.setLineWidth(1.2)
-    canvas.line(1.2 * cm, 1.35 * cm, page_width - 1.2 * cm, 1.35 * cm)
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.HexColor("#64748B"))
+    canvas.drawString(
+        1.4 * cm,
+        0.55 * cm,
+        f"{COMPANY_DATA['brand']} - Comprobante generado por sistema",
+    )
 
     canvas.restoreState()
 
 
-def make_label_value_table(rows, header_bg="#EFF6FF"):
-    table = Table(
-        rows,
-        colWidths=[
-            4.5 * cm,
-            12.5 * cm,
-        ],
-    )
+def make_label_value_table(rows, widths=None, header_bg="#F8FAFC"):
+    if widths is None:
+        widths = [5.2 * cm, 10.5 * cm]
+
+    table = Table(rows, colWidths=widths)
 
     table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor(header_bg)),
-            ("BACKGROUND", (1, 0), (1, -1), colors.white),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CBD5E1")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
-            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
-            ("TOPPADDING", (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ])
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor(header_bg)),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#334155")),
+                ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#0F172A")),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+                ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
     )
 
     return table
 
 
-@router.get("/invoices/{invoice_id}/receipt-pdf")
-def export_invoice_receipt_pdf(
-    invoice_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_roles([
-            "admin",
-            "cobrador",
-        ])
-    ),
-):
+def get_customer_name(customer, invoice):
+    if not customer:
+        return f"Cliente ID {getattr(invoice, 'customer_id', '-')}"
+
+    name = get_first_attr(customer, ["name", "first_name", "nombre"], "")
+    last_name = get_first_attr(customer, ["last_name", "lastname", "apellido"], "")
+
+    full_name = f"{name or ''} {last_name or ''}".strip()
+
+    return full_name or f"Cliente ID {getattr(invoice, 'customer_id', '-')}"
+
+
+def build_invoice_pdf(invoice: Invoice, customer: Customer | None):
+    output = BytesIO()
+
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=A4,
+        rightMargin=1.4 * cm,
+        leftMargin=1.4 * cm,
+        topMargin=1.45 * cm,
+        bottomMargin=1.35 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "TitleHighSpeed",
+        parent=styles["Title"],
+        fontSize=20,
+        textColor=colors.HexColor("#0F172A"),
+        leading=24,
+        spaceAfter=8,
+    )
+
+    subtitle_style = ParagraphStyle(
+        "SubtitleHighSpeed",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#475569"),
+        leading=12,
+    )
+
+    section_title_style = ParagraphStyle(
+        "SectionTitleHighSpeed",
+        parent=styles["Heading3"],
+        fontSize=11,
+        textColor=colors.HexColor("#1E40AF"),
+        leading=14,
+        spaceBefore=8,
+        spaceAfter=6,
+    )
+
+    normal_style = ParagraphStyle(
+        "NormalHighSpeed",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#0F172A"),
+        leading=12,
+    )
+
+    elements = []
+
+    logo_path = find_logo_path()
+
+    header_left = []
+
+    if logo_path:
+        try:
+            logo = Image(logo_path, width=4.8 * cm, height=1.55 * cm)
+            header_left.append(logo)
+        except Exception:
+            header_left.append(Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style))
+    else:
+        header_left.append(Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style))
+
+    status = str(getattr(invoice, "status", "") or "").lower()
+
+    document_title = (
+        "COMPROBANTE DE PAGO"
+        if status == "paid"
+        else "FACTURA / COMPROBANTE"
+    )
+
+    header_right = [
+        Paragraph(f"<b>{document_title}</b>", title_style),
+        Paragraph(f"Factura Nro. {invoice.id}", subtitle_style),
+        Paragraph(f"Fecha emision: {format_date(get_first_attr(invoice, ['created_at', 'date', 'issued_at'], datetime.now()))}", subtitle_style),
+    ]
+
+    header = Table(
+        [[header_left, header_right]],
+        colWidths=[8.0 * cm, 8.6 * cm],
+    )
+
+    header.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+            ]
+        )
+    )
+
+    elements.append(header)
+    elements.append(Spacer(1, 0.2 * cm))
+
+    company_rows = [
+        ["Empresa", COMPANY_DATA["business_name"]],
+        ["Marca", COMPANY_DATA["brand"]],
+        ["CUIT", COMPANY_DATA["cuit"]],
+        ["Localidad", COMPANY_DATA["locality"]],
+        ["Direccion", COMPANY_DATA["address"]],
+        ["Telefono", COMPANY_DATA["phone"]],
+    ]
+
+    if COMPANY_DATA.get("email"):
+        company_rows.append(["Email", COMPANY_DATA["email"]])
+
+    elements.append(Paragraph("<b>DATOS DE LA EMPRESA</b>", section_title_style))
+    elements.append(make_label_value_table(company_rows, header_bg="#EFF6FF"))
+
+    elements.append(Spacer(1, 0.35 * cm))
+
+    customer_name = get_customer_name(customer, invoice)
+
+    customer_rows = [
+        ["Cliente", customer_name],
+        ["Cliente ID", str(getattr(invoice, "customer_id", "-"))],
+        ["Usuario PPPoE", get_first_attr(customer, ["pppoe_username", "username_pppoe", "username"], "-")],
+        ["IP Cliente", get_first_attr(customer, ["remote_address", "ip", "ip_address"], "-")],
+        ["Telefono", get_first_attr(customer, ["phone", "telefono", "cellphone", "mobile"], "-")],
+        ["Zona", get_first_attr(customer, ["zone", "zona", "localidad"], "-")],
+        ["Direccion", get_first_attr(customer, ["address", "direccion"], "-")],
+        ["Estado cliente", get_first_attr(customer, ["status", "estado", "state"], "-")],
+    ]
+
+    elements.append(Paragraph("<b>DATOS DEL CLIENTE</b>", section_title_style))
+    elements.append(make_label_value_table(customer_rows, header_bg="#F0FDF4"))
+
+    elements.append(Spacer(1, 0.35 * cm))
+
+    paid_at = get_first_attr(invoice, ["paid_at", "payment_date", "paid_date"], None)
+    due_date = get_first_attr(invoice, ["due_date", "vencimiento"], None)
+    invoice_amount = get_first_attr(invoice, ["amount", "total", "monto"], 0)
+    payment_method = get_first_attr(invoice, ["payment_method", "method"], "-")
+    payment_note = get_first_attr(invoice, ["payment_note", "note", "notes"], "-")
+
+    invoice_rows = [
+        ["Factura Nro.", str(invoice.id)],
+        ["Comprobante Nro.", f"COMP-{invoice.id}"],
+        ["Estado", invoice_status_label(status)],
+        ["Monto", format_money(invoice_amount)],
+        ["Vencimiento", format_date(due_date)],
+        ["Fecha de pago", format_date(paid_at) if paid_at else "-"],
+        ["Metodo de pago", payment_method or "-"],
+        ["Nota de pago", payment_note or "-"],
+    ]
+
+    elements.append(Paragraph("<b>DETALLE DEL COMPROBANTE</b>", section_title_style))
+    elements.append(make_label_value_table(invoice_rows, header_bg="#FFF7ED"))
+
+    elements.append(Spacer(1, 0.35 * cm))
+
+    concept_rows = [
+        ["Concepto", "Cantidad", "Importe"],
+        ["Servicio de internet", "1", format_money(invoice_amount)],
+        ["TOTAL", "", format_money(invoice_amount)],
+    ]
+
+    concept_table = Table(
+        concept_rows,
+        colWidths=[9.5 * cm, 3 * cm, 4.1 * cm],
+    )
+
+    concept_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EFF6FF")),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+
+    elements.append(Paragraph("<b>CONCEPTO FACTURADO</b>", section_title_style))
+    elements.append(concept_table)
+
+    elements.append(Spacer(1, 0.55 * cm))
+
+    note_text = (
+        "Este comprobante fue generado automaticamente por el sistema HighSpeed ISP. "
+        "Conserve este documento como constancia de la factura seleccionada."
+    )
+
+    if status != "paid":
+        note_text += " La factura figura como pendiente de pago."
+
+    elements.append(Paragraph(note_text, normal_style))
+
+    doc.build(
+        elements,
+        onFirstPage=receipt_background,
+        onLaterPages=receipt_background,
+    )
+
+    output.seek(0)
+    return output
+
+
+def stream_invoice_pdf(invoice: Invoice, customer: Customer | None):
+    pdf = build_invoice_pdf(invoice, customer)
+
+    customer_name = clean_filename(get_customer_name(customer, invoice))
+    filename = clean_filename(f"comprobante_factura_{invoice.id}_{customer_name}.pdf")
+
+    return StreamingResponse(
+        pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+def get_invoice_and_customer(db: Session, invoice_id: int):
     invoice = (
         db.query(Invoice)
         .filter(Invoice.id == invoice_id)
@@ -264,251 +464,52 @@ def export_invoice_receipt_pdf(
         .first()
     )
 
-    customer_name = f"Cliente ID {invoice.customer_id}"
+    return invoice, customer
 
-    if customer:
-        customer_name = f"{customer.name or ''} {customer.last_name or ''}".strip()
 
-    output = BytesIO()
-
-    doc = SimpleDocTemplate(
-        output,
-        pagesize=A4,
-        rightMargin=1.4 * cm,
-        leftMargin=1.4 * cm,
-        topMargin=1 * cm,
-        bottomMargin=1 * cm,
-    )
-
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "ReceiptTitle",
-        parent=styles["Title"],
-        fontSize=26,
-        textColor=colors.HexColor("#0F172A"),
-        alignment=1,
-        spaceAfter=4,
-    )
-
-    section_title_style = ParagraphStyle(
-        "SectionTitle",
-        parent=styles["Heading3"],
-        fontSize=13,
-        textColor=colors.HexColor("#1D4ED8"),
-        spaceAfter=8,
-    )
-
-    center_small_style = ParagraphStyle(
-        "CenterSmall",
-        parent=styles["Normal"],
-        fontSize=9,
-        leading=12,
-        alignment=1,
-        textColor=colors.HexColor("#475569"),
-    )
-
-    elements = []
-
-    logo_path = find_logo_path()
-
-    if logo_path:
-        try:
-            logo = Image(logo_path)
-            logo.drawHeight = 2.1 * cm
-            logo.drawWidth = 6.2 * cm
-
-            logo_table = Table(
-                [[logo]],
-                colWidths=[17 * cm],
-            )
-
-            logo_table.setStyle(
-                TableStyle([
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ])
-            )
-
-            elements.append(logo_table)
-        except Exception:
-            elements.append(Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style))
-    else:
-        elements.append(Paragraph(f"<b>{COMPANY_DATA['brand']}</b>", title_style))
-
-    elements.append(Paragraph("<b>RECIBO DE PAGO</b>", title_style))
-    elements.append(Spacer(1, 0.12 * cm))
-
-    status_text = format_status(invoice.status)
-
-    if invoice.status == "paid":
-        status_label = "Factura pagada"
-        status_bg = "#DCFCE7"
-        status_text_color = "#15803D"
-        status_border = "#BBF7D0"
-    else:
-        status_label = "Factura pendiente"
-        status_bg = "#FFEDD5"
-        status_text_color = "#EA580C"
-        status_border = "#FED7AA"
-
-    status_table = Table(
-        [[status_label]],
-        colWidths=[7 * cm],
-    )
-
-    status_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(status_bg)),
-            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor(status_text_color)),
-            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 14),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor(status_border)),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+@router.get("/invoices/{invoice_id}/comprobante-pdf")
+def export_invoice_comprobante_pdf(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_roles([
+            "admin",
+            "cobrador",
         ])
-    )
+    ),
+):
+    invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    status_wrapper = Table([[status_table]], colWidths=[17 * cm])
-    status_wrapper.setStyle(
-        TableStyle([
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    return stream_invoice_pdf(invoice, customer)
+
+
+@router.get("/invoices/{invoice_id}/receipt-pdf")
+def export_invoice_receipt_pdf(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_roles([
+            "admin",
+            "cobrador",
         ])
-    )
-    elements.append(status_wrapper)
+    ),
+):
+    invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    elements.append(Paragraph("<b>DATOS DE LA EMPRESA</b>", section_title_style))
+    return stream_invoice_pdf(invoice, customer)
 
-    company_rows = [
-        ["Nombre", COMPANY_DATA["business_name"]],
-        ["CUIT", COMPANY_DATA["cuit"]],
-        ["Localidad", COMPANY_DATA["locality"]],
-        ["Telefono", COMPANY_DATA["phone"]],
-        ["Direccion", COMPANY_DATA["address"]],
-    ]
 
-    company_table = make_label_value_table(company_rows, header_bg="#EFF6FF")
-    elements.append(company_table)
-    elements.append(Spacer(1, 0.45 * cm))
-
-    elements.append(Paragraph("<b>DETALLES DEL RECIBO</b>", section_title_style))
-
-    payment_date = get_payment_date(invoice)
-
-    receipt_rows = [
-        ["Cliente", customer_name or "-"],
-        ["Factura Nro.", str(invoice.id)],
-        ["Recibo Nro.", f"REC-{invoice.id}"],
-        ["Fecha de pago", format_datetime(payment_date)],
-        ["Metodo de pago", getattr(invoice, "payment_method", None) or "Efectivo"],
-        ["Observacion", getattr(invoice, "payment_note", None) or "-"],
-        ["Usuario PPPoE", customer.pppoe_username if customer else "-"],
-        ["IP Cliente", customer.remote_address if customer else "-"],
-        ["Telefono Cliente", customer.phone if customer else "-"],
-        ["Zona", customer.zone if customer else "-"],
-        ["Concepto", "Servicio de Internet"],
-        ["Vencimiento", format_date(invoice.due_date)],
-        ["Importe abonado", money(invoice.amount)],
-        ["Estado", status_text],
-    ]
-
-    receipt_table = make_label_value_table(receipt_rows, header_bg="#DBEAFE")
-    elements.append(receipt_table)
-    elements.append(Spacer(1, 0.4 * cm))
-
-    if invoice.status != "paid":
-        warning_table = Table(
-            [["ATENCION: Esta factura todavia no figura como pagada."]],
-            colWidths=[17 * cm],
-        )
-
-        warning_table.setStyle(
-            TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF2F2")),
-                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#DC2626")),
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#FCA5A5")),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ])
-        )
-
-        elements.append(warning_table)
-        elements.append(Spacer(1, 0.35 * cm))
-
-    certification_table = Table(
-        [
-            [
-                "Este recibo certifica que la factura fue abonada correctamente."
-                if invoice.status == "paid"
-                else "Este documento fue generado como comprobante de factura."
-            ]
-        ],
-        colWidths=[17 * cm],
-    )
-
-    certification_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0FDF4" if invoice.status == "paid" else "#FFF7ED")),
-            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#166534" if invoice.status == "paid" else "#9A3412")),
-            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#BBF7D0" if invoice.status == "paid" else "#FED7AA")),
-            ("TOPPADDING", (0, 0), (-1, -1), 9),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+@router.get("/invoices/{invoice_id}/factura-pdf")
+def export_selected_invoice_pdf(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_roles([
+            "admin",
+            "cobrador",
         ])
-    )
+    ),
+):
+    invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    elements.append(certification_table)
-    elements.append(Spacer(1, 0.65 * cm))
-
-    signature_table = Table(
-        [
-            ["______________________________"],
-            [COMPANY_DATA["business_name"]],
-            ["Titular"],
-        ],
-        colWidths=[17 * cm],
-    )
-
-    signature_table.setStyle(
-        TableStyle([
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("FONTNAME", (0, 1), (0, 1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
-            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
-        ])
-    )
-
-    elements.append(signature_table)
-    elements.append(Spacer(1, 0.35 * cm))
-
-    elements.append(
-        Paragraph(
-            f"{COMPANY_DATA['brand']} CRM - Comprobante generado automaticamente.",
-            center_small_style,
-        )
-    )
-
-    doc.build(
-        elements,
-        onFirstPage=draw_receipt_background,
-        onLaterPages=draw_receipt_background,
-    )
-
-    output.seek(0)
-
-    customer_filename = safe_filename(customer_name)
-    filename = f"recibo_{customer_filename}_factura_{invoice.id}.pdf"
-
-    return StreamingResponse(
-        output,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        },
-    )
+    return stream_invoice_pdf(invoice, customer)

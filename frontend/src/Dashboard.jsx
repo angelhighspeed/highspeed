@@ -371,6 +371,44 @@ function Dashboard({ onLogout }) {
     }
   };
 
+  const downloadInvoiceComprobante = async (invoiceId) => {
+    try {
+      const res = await axios.get(
+        `${API}/invoices/${invoiceId}/comprobante-pdf`,
+        {
+          ...getAuthHeaders(),
+          responseType: "blob",
+        }
+      );
+
+      const blob = new Blob([res.data], {
+        type: "application/pdf",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `comprobante_factura_${invoiceId}.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Error descargando comprobante:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo descargar el comprobante.\n\n${detail}`);
+    }
+  };
+
   const generateMonthlyBilling = async () => {
     const now = new Date();
 
@@ -1563,14 +1601,23 @@ ${detail}`);
                       </span>
                     </p>
 
-                    {invoice.status === "pending" && canManageInvoices && (
+                    <div className="flex flex-wrap gap-3 mt-4">
                       <button
-                        className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500 mt-3"
-                        onClick={() => payInvoice(invoice.id)}
+                        className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500"
+                        onClick={() => downloadInvoiceComprobante(invoice.id)}
                       >
-                        Marcar pagada
+                        Descargar comprobante PDF
                       </button>
-                    )}
+
+                      {invoice.status === "pending" && canManageInvoices && (
+                        <button
+                          className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-500"
+                          onClick={() => payInvoice(invoice.id)}
+                        >
+                          Marcar pagada
+                        </button>
+                      )}
+                    </div>
                   </Panel>
                 );
               }}
