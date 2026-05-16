@@ -21,6 +21,7 @@ from app.routers.customer_router import router as customer_router
 from app.routers.customer_payment_history_router import (
     router as customer_payment_history_router,
 )
+from app.routers.customer_finance_router import router as customer_finance_router
 
 from app.routers.plan_router import router as plan_router
 
@@ -75,6 +76,7 @@ app.include_router(installation_router)
 
 app.include_router(customer_router)
 app.include_router(customer_payment_history_router)
+app.include_router(customer_finance_router)
 
 app.include_router(plan_router)
 

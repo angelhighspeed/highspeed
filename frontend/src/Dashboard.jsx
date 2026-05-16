@@ -52,6 +52,11 @@ function Dashboard({ onLogout }) {
   const [paymentHistoryData, setPaymentHistoryData] = useState(null);
   const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
 
+  const [customerFinanceData, setCustomerFinanceData] = useState(null);
+  const [customerFinanceLoading, setCustomerFinanceLoading] = useState(false);
+  const [customerFinanceSearch, setCustomerFinanceSearch] = useState("");
+  const [customerFinanceStatusFilter, setCustomerFinanceStatusFilter] = useState("");
+
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("");
 
@@ -102,6 +107,7 @@ function Dashboard({ onLogout }) {
   const canManageInvoices = ["admin", "cobrador"].includes(role);
   const canViewCashbox = ["admin", "cobrador"].includes(role);
   const canViewPaymentHistory = ["admin", "cobrador", "operador"].includes(role);
+  const canViewCustomerFinance = ["admin", "cobrador", "operador", "tecnico"].includes(role);
 
   const canViewTickets = ["admin", "tecnico", "operador"].includes(role);
   const canManageTickets = ["admin", "tecnico"].includes(role);
@@ -197,6 +203,40 @@ function Dashboard({ onLogout }) {
     setSection("paymentHistory");
     setPaymentHistoryCustomerId(cleanCustomerId);
     await loadPaymentHistory(cleanCustomerId);
+  };
+
+
+  const loadCustomerFinance = async () => {
+    try {
+      if (!canViewCustomerFinance) return;
+
+      setCustomerFinanceLoading(true);
+
+      const res = await axios.get(
+        `${API}/customers/financial-summary`,
+        getAuthHeaders()
+      );
+
+      setCustomerFinanceData(res.data);
+    } catch (error) {
+      console.error("Error cargando estado financiero de clientes:", error);
+
+      if (error.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        onLogout();
+        return;
+      }
+
+      alert("No se pudo cargar el estado financiero de clientes.");
+    } finally {
+      setCustomerFinanceLoading(false);
+    }
+  };
+
+  const openCustomerFinance = async () => {
+    setSection("customerFinance");
+    await loadCustomerFinance();
   };
 
   const loadData = async () => {
@@ -335,6 +375,13 @@ function Dashboard({ onLogout }) {
       loadCashbox(cashboxDate);
     }
   }, [section, cashboxDate]);
+
+
+  useEffect(() => {
+    if (section === "customerFinance" && !customerFinanceData) {
+      loadCustomerFinance();
+    }
+  }, [section]);
 
   const createInvoice = async (e) => {
     e.preventDefault();
@@ -773,6 +820,52 @@ Nota: ${paymentNote || "-"}`
     (invoice) => invoice.status === "paid"
   );
 
+
+  const customerFinanceCustomers = customerFinanceData?.customers || [];
+
+  const filteredCustomerFinanceCustomers = customerFinanceCustomers.filter(
+    (customer) => {
+      const text = `
+        ${customer.id || ""}
+        ${customer.name || ""}
+        ${customer.first_name || ""}
+        ${customer.last_name || ""}
+        ${customer.pppoe_username || ""}
+        ${customer.ip || ""}
+        ${customer.phone || ""}
+        ${customer.zone || ""}
+        ${customer.status || ""}
+        ${customer.account_status || ""}
+      `.toLowerCase();
+
+      const matchesSearch = text.includes(customerFinanceSearch.toLowerCase());
+
+      const matchesStatus = customerFinanceStatusFilter
+        ? customer.account_status === customerFinanceStatusFilter
+        : true;
+
+      return matchesSearch && matchesStatus;
+    }
+  );
+
+  const customerFinanceTotalDebt = customerFinanceCustomers.reduce(
+    (sum, customer) => sum + Number(customer.total_pending || 0),
+    0
+  );
+
+  const customerFinanceTotalPaid = customerFinanceCustomers.reduce(
+    (sum, customer) => sum + Number(customer.total_paid || 0),
+    0
+  );
+
+  const customerFinanceWithDebt = customerFinanceCustomers.filter(
+    (customer) => customer.account_status === "debt"
+  );
+
+  const customerFinanceUpToDate = customerFinanceCustomers.filter(
+    (customer) => customer.account_status === "up_to_date"
+  );
+
   const networkData = [
     { name: "15 May", sesiones: 580 },
     { name: "16 May", sesiones: 490 },
@@ -805,6 +898,15 @@ Nota: ${paymentNote || "-"}`
               label="Clientes"
               active={section === "customers"}
               onClick={() => setSection("customers")}
+            />
+          )}
+
+          {canViewCustomerFinance && (
+            <SidebarButton
+              icon="💰"
+              label="Estado clientes"
+              active={section === "customerFinance"}
+              onClick={openCustomerFinance}
             />
           )}
 
@@ -927,6 +1029,180 @@ Nota: ${paymentNote || "-"}`
         )}
 
         {section === "customers" && canViewCustomers && <CustomerManager />}
+
+
+        {section === "customerFinance" && canViewCustomerFinance && (
+          <Module title="Estado financiero de clientes">
+            <Panel title="Resumen general">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <StatBox
+                  title="Clientes"
+                  value={customerFinanceData?.total_customers || 0}
+                  color="text-blue-600"
+                />
+
+                <StatBox
+                  title="Al día"
+                  value={customerFinanceUpToDate.length}
+                  color="text-green-600"
+                />
+
+                <StatBox
+                  title="Con deuda"
+                  value={customerFinanceWithDebt.length}
+                  color="text-red-600"
+                />
+
+                <StatBox
+                  title="Total deuda"
+                  value={`$${customerFinanceTotalDebt}`}
+                  color="text-red-600"
+                />
+
+                <StatBox
+                  title="Total pagado"
+                  value={`$${customerFinanceTotalPaid}`}
+                  color="text-green-600"
+                />
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={loadCustomerFinance}
+                  disabled={customerFinanceLoading}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                >
+                  {customerFinanceLoading ? "Actualizando..." : "Actualizar"}
+                </button>
+              </div>
+            </Panel>
+
+            <Panel title="Buscar y filtrar clientes">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 md:col-span-2"
+                  placeholder="Buscar por nombre, usuario PPPoE, IP, teléfono, zona o ID..."
+                  value={customerFinanceSearch}
+                  onChange={(e) => setCustomerFinanceSearch(e.target.value)}
+                />
+
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                  value={customerFinanceStatusFilter}
+                  onChange={(e) =>
+                    setCustomerFinanceStatusFilter(e.target.value)
+                  }
+                >
+                  <option value="">Todos</option>
+                  <option value="debt">Con deuda</option>
+                  <option value="up_to_date">Al día</option>
+                </select>
+              </div>
+            </Panel>
+
+            <Panel title="Clientes">
+              {!filteredCustomerFinanceCustomers.length && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500">
+                  No hay clientes para mostrar con el filtro actual.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {filteredCustomerFinanceCustomers.map((customer) => (
+                  <div
+                    key={customer.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-950">
+                          {customer.name || `Cliente ID ${customer.id}`}
+                        </h3>
+
+                        <p className="text-sm text-slate-500">
+                          ID {customer.id} · Usuario:{" "}
+                          {customer.pppoe_username || "-"} · IP:{" "}
+                          {customer.ip || "-"}
+                        </p>
+                      </div>
+
+                      <span
+                        className={`rounded-lg px-3 py-1 text-xs font-bold ${
+                          customer.account_status === "debt"
+                            ? "bg-red-600 text-white"
+                            : "bg-green-600 text-white"
+                        }`}
+                      >
+                        {customer.account_status === "debt"
+                          ? "DEBE"
+                          : "AL DÍA"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Deuda</p>
+                        <p className="text-lg font-bold text-red-600">
+                          ${customer.total_pending || 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Pagado</p>
+                        <p className="text-lg font-bold text-green-600">
+                          ${customer.total_paid || 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Facturado</p>
+                        <p className="text-lg font-bold text-blue-600">
+                          ${customer.total_billed || 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Pendientes</p>
+                        <p className="text-lg font-bold text-orange-500">
+                          {customer.pending_invoices || 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Pagadas</p>
+                        <p className="text-lg font-bold text-green-600">
+                          {customer.paid_invoices || 0}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">Total facturas</p>
+                        <p className="text-lg font-bold text-slate-950">
+                          {customer.total_invoices || 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openPaymentHistory(customer.id)}
+                        className="rounded-xl bg-slate-800 px-4 py-2 font-bold text-white hover:bg-slate-700"
+                      >
+                        Ver historial de pagos
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          </Module>
+        )}
+
+
 
         {section === "online" && canViewOnline && <OnlineClients />}
 
