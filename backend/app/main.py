@@ -17,6 +17,7 @@ from app.models.router_model import Router
 # Routers
 from app.routers.auth_router import router as auth_router
 
+from app.routers.customer_actions_router import router as customer_actions_router
 from app.routers.customer_router import router as customer_router
 from app.routers.customer_payment_history_router import (
     router as customer_payment_history_router,
@@ -74,9 +75,16 @@ app.include_router(billing_generate_router)
 
 app.include_router(installation_router)
 
-app.include_router(customer_router)
+# IMPORTANTE:
+# customer_actions_router va antes que customer_router para que funcionen:
+# /customers/list-all
+# /customers/{id}/activate
+# /customers/{id}/suspend
+# /customers/{id}/delete
+app.include_router(customer_actions_router)
 app.include_router(customer_payment_history_router)
 app.include_router(customer_finance_router)
+app.include_router(customer_router)
 
 app.include_router(plan_router)
 
