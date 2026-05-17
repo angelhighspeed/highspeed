@@ -81,6 +81,17 @@ function Dashboard({ onLogout }) {
   const [userFormMode, setUserFormMode] = useState("create");
   const [showUserForm, setShowUserForm] = useState(false);
 
+  const [notificationCustomerSearch, setNotificationCustomerSearch] =
+    useState("");
+  const [notificationForm, setNotificationForm] = useState({
+    customer_id: "",
+    type: "payment_reminder",
+    invoice_id: "",
+    custom_message: "",
+  });
+  const [generatedNotificationMessage, setGeneratedNotificationMessage] =
+    useState("");
+
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
 
@@ -161,6 +172,7 @@ function Dashboard({ onLogout }) {
   const canViewMikrotik = role === "admin";
   const canViewCompanySettings = role === "admin";
   const canManageUsers = role === "admin";
+  const canViewNotifications = ["admin", "cobrador", "operador", "tecnico"].includes(role);
   const canViewStats = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewClientStatus = [
@@ -1362,6 +1374,206 @@ ${detail}`);
     }
   };
 
+  const normalizeWhatsAppPhone = (phone) => {
+    const digits = String(phone || "").replace(/\D/g, "");
+
+    if (!digits) return "";
+
+    if (digits.startsWith("549")) return digits;
+
+    if (digits.startsWith("54")) return digits;
+
+    // Argentina: si el número local no trae país, agregamos 54.
+    return `54${digits}`;
+  };
+
+  const getCustomerById = (customerId) => {
+    return customers.find(
+      (customer) => Number(customer.id) === Number(customerId)
+    );
+  };
+
+  const getInvoiceById = (invoiceId) => {
+    return invoices.find((invoice) => Number(invoice.id) === Number(invoiceId));
+  };
+
+  const getCustomerFullName = (customer) => {
+    if (!customer) return "";
+
+    return `${customer.name || ""} ${customer.last_name || ""}`.trim();
+  };
+
+  const getCustomerInvoices = (customerId) => {
+    return invoices.filter(
+      (invoice) => Number(invoice.customer_id) === Number(customerId)
+    );
+  };
+
+  const getPendingCustomerInvoices = (customerId) => {
+    return getCustomerInvoices(customerId).filter(
+      (invoice) => String(invoice.status || "").toLowerCase() === "pending"
+    );
+  };
+
+  const formatNotificationMoney = (value) => {
+    return `$ ${Number(value || 0).toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const selectedNotificationCustomer = getCustomerById(
+    notificationForm.customer_id
+  );
+
+  const selectedNotificationInvoice = getInvoiceById(
+    notificationForm.invoice_id
+  );
+
+  const notificationCustomerMatches = customers
+    .filter((customer) => {
+      const status = String(customer.status || "").toLowerCase();
+
+      if (status === "deleted" || status === "pending_installation") {
+        return false;
+      }
+
+      const text = `
+        ${customer.id || ""}
+        ${customer.name || ""}
+        ${customer.last_name || ""}
+        ${customer.pppoe_username || ""}
+        ${customer.remote_address || ""}
+        ${customer.phone || ""}
+        ${customer.zone || ""}
+      `.toLowerCase();
+
+      return text.includes(notificationCustomerSearch.toLowerCase());
+    })
+    .slice(0, 10);
+
+  const pendingInvoiceNotifications = invoices
+    .filter((invoice) => String(invoice.status || "").toLowerCase() === "pending")
+    .slice(0, 10);
+
+  const promiseNotifications = invoices
+    .filter((invoice) => invoice.payment_promise_status === "active")
+    .slice(0, 10);
+
+  const ticketNotifications = tickets
+    .filter((ticket) => String(ticket.status || "").toLowerCase() !== "closed")
+    .slice(0, 10);
+
+  const buildNotificationMessage = (
+    type = notificationForm.type,
+    customer = selectedNotificationCustomer,
+    invoice = selectedNotificationInvoice
+  ) => {
+    const companyName =
+      companySettings.brand ||
+      companySettings.business_name ||
+      "HighSpeed ISP";
+
+    const customerName = getCustomerFullName(customer) || "cliente";
+    const pppoe = customer?.pppoe_username || "-";
+    const ip = customer?.remote_address || "-";
+    const amount = invoice ? formatNotificationMoney(invoice.amount) : "-";
+    const dueDate = invoice?.due_date || "-";
+    const promiseDate = invoice?.payment_promise_date || "-";
+
+    if (type === "payment_reminder") {
+      return `Hola ${customerName}, te contactamos de ${companyName}. Te recordamos que tenés una factura pendiente por ${amount}, con vencimiento ${dueDate}. Usuario PPPoE: ${pppoe}.`;
+    }
+
+    if (type === "overdue_notice") {
+      return `Hola ${customerName}, te contactamos de ${companyName}. Registramos una factura vencida por ${amount}, vencida el ${dueDate}. Para evitar suspensión del servicio, por favor regularizá el pago. Usuario PPPoE: ${pppoe}.`;
+    }
+
+    if (type === "payment_promise") {
+      return `Hola ${customerName}, de ${companyName}. Tenemos registrada tu promesa de pago para el día ${promiseDate}. Te recordamos el importe pendiente: ${amount}. Muchas gracias.`;
+    }
+
+    if (type === "cut_warning") {
+      return `Hola ${customerName}, de ${companyName}. Tu servicio de internet figura con deuda pendiente por ${amount}. Si no se regulariza, puede aplicarse suspensión. Usuario PPPoE: ${pppoe}.`;
+    }
+
+    if (type === "ticket_update") {
+      return `Hola ${customerName}, de ${companyName}. Te informamos que estamos revisando tu solicitud técnica. Usuario PPPoE: ${pppoe}. IP: ${ip}.`;
+    }
+
+    if (type === "installation_reminder") {
+      return `Hola ${customerName}, de ${companyName}. Te recordamos que tenés una instalación/visita técnica programada. Ante cualquier cambio, avisanos por este medio.`;
+    }
+
+    if (type === "custom") {
+      return notificationForm.custom_message || "";
+    }
+
+    return "";
+  };
+
+  const updateGeneratedNotification = () => {
+    const message = buildNotificationMessage();
+
+    setGeneratedNotificationMessage(message);
+
+    return message;
+  };
+
+  const openWhatsAppNotification = (
+    customer = selectedNotificationCustomer,
+    message = generatedNotificationMessage || buildNotificationMessage()
+  ) => {
+    if (!customer) {
+      alert("Seleccioná un cliente.");
+      return;
+    }
+
+    const phone = normalizeWhatsAppPhone(customer.phone);
+
+    if (!phone) {
+      alert("El cliente no tiene teléfono cargado.");
+      return;
+    }
+
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const copyNotificationMessage = async () => {
+    const message = generatedNotificationMessage || buildNotificationMessage();
+
+    try {
+      await navigator.clipboard.writeText(message);
+      alert("Mensaje copiado.");
+    } catch (error) {
+      const textArea = document.createElement("textarea");
+      textArea.value = message;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      textArea.remove();
+      alert("Mensaje copiado.");
+    }
+  };
+
+  const quickWhatsAppForInvoice = (invoice, type = "payment_reminder") => {
+    const customer =
+      getCustomerById(invoice.customer_id) ||
+      {
+        id: invoice.customer_id,
+        name: invoice.customer_name || "",
+        phone: invoice.customer_phone || "",
+        pppoe_username: invoice.customer_pppoe_username || "",
+        remote_address: invoice.customer_ip || "",
+      };
+
+    const message = buildNotificationMessage(type, customer, invoice);
+
+    openWhatsAppNotification(customer, message);
+  };
+
   const networkData = [
     { name: "15 May", sesiones: 580 },
     { name: "16 May", sesiones: 490 },
@@ -1430,6 +1642,15 @@ ${detail}`);
               label="Facturas"
               active={section === "invoices"}
               onClick={() => setSection("invoices")}
+            />
+          )}
+
+          {canViewNotifications && (
+            <SidebarButton
+              icon="💬"
+              label="Notificaciones"
+              active={section === "notifications"}
+              onClick={() => setSection("notifications")}
             />
           )}
 
@@ -1954,6 +2175,337 @@ ${detail}`);
                 );
               }}
             />
+          </Module>
+        )}
+
+        {section === "notifications" && canViewNotifications && (
+          <Module title="Notificaciones manuales">
+            <Panel title="WhatsApp manual">
+              <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
+                <div className="space-y-5">
+                  <div>
+                    <label className="mb-2 block font-bold text-slate-700">
+                      Buscar cliente
+                    </label>
+
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      placeholder="Buscar por nombre, PPPoE, IP, teléfono o zona..."
+                      value={notificationCustomerSearch}
+                      onChange={(e) =>
+                        setNotificationCustomerSearch(e.target.value)
+                      }
+                    />
+
+                    {notificationCustomerSearch &&
+                      notificationCustomerMatches.length > 0 && (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {notificationCustomerMatches.map((customer) => (
+                              <button
+                                key={customer.id}
+                                type="button"
+                                onClick={() => {
+                                  setNotificationForm({
+                                    ...notificationForm,
+                                    customer_id: customer.id,
+                                    invoice_id: "",
+                                  });
+
+                                  setNotificationCustomerSearch(
+                                    getCustomerFullName(customer)
+                                  );
+
+                                  setGeneratedNotificationMessage("");
+                                }}
+                                className="rounded-lg bg-white p-3 text-left text-sm hover:bg-blue-50 border border-slate-200"
+                              >
+                                <b>{getCustomerFullName(customer)}</b>
+                                <br />
+                                PPPoE: {customer.pppoe_username || "-"} · IP:{" "}
+                                {customer.remote_address || "-"}
+                                <br />
+                                Tel: {customer.phone || "-"} · Zona:{" "}
+                                {customer.zone || "-"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+
+                  {selectedNotificationCustomer && (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                      <h3 className="font-bold">Cliente seleccionado</h3>
+
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <p>
+                          <b>Nombre:</b>{" "}
+                          {getCustomerFullName(selectedNotificationCustomer)}
+                        </p>
+                        <p>
+                          <b>PPPoE:</b>{" "}
+                          {selectedNotificationCustomer.pppoe_username || "-"}
+                        </p>
+                        <p>
+                          <b>IP:</b>{" "}
+                          {selectedNotificationCustomer.remote_address || "-"}
+                        </p>
+                        <p>
+                          <b>Teléfono:</b>{" "}
+                          {selectedNotificationCustomer.phone || "-"}
+                        </p>
+                        <p>
+                          <b>Zona:</b>{" "}
+                          {selectedNotificationCustomer.zone || "-"}
+                        </p>
+                        <p>
+                          <b>Estado:</b>{" "}
+                          {selectedNotificationCustomer.status || "-"}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <select
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      value={notificationForm.type}
+                      onChange={(e) => {
+                        setNotificationForm({
+                          ...notificationForm,
+                          type: e.target.value,
+                        });
+
+                        setGeneratedNotificationMessage("");
+                      }}
+                    >
+                      <option value="payment_reminder">
+                        Recordatorio de pago
+                      </option>
+                      <option value="overdue_notice">Factura vencida</option>
+                      <option value="payment_promise">
+                        Recordar promesa de pago
+                      </option>
+                      <option value="cut_warning">Aviso de posible corte</option>
+                      <option value="ticket_update">Actualización técnica</option>
+                      <option value="installation_reminder">
+                        Recordatorio de instalación
+                      </option>
+                      <option value="custom">Mensaje personalizado</option>
+                    </select>
+
+                    <select
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                      value={notificationForm.invoice_id}
+                      onChange={(e) => {
+                        setNotificationForm({
+                          ...notificationForm,
+                          invoice_id: e.target.value,
+                        });
+
+                        setGeneratedNotificationMessage("");
+                      }}
+                    >
+                      <option value="">Seleccionar factura opcional</option>
+                      {getPendingCustomerInvoices(
+                        notificationForm.customer_id
+                      ).map((invoice) => (
+                        <option key={invoice.id} value={invoice.id}>
+                          Factura #{invoice.id} · $
+                          {invoice.amount || 0} · vence {invoice.due_date || "-"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {notificationForm.type === "custom" && (
+                    <textarea
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28"
+                      placeholder="Escribí el mensaje personalizado..."
+                      value={notificationForm.custom_message}
+                      onChange={(e) => {
+                        setNotificationForm({
+                          ...notificationForm,
+                          custom_message: e.target.value,
+                        });
+
+                        setGeneratedNotificationMessage(e.target.value);
+                      }}
+                    />
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={updateGeneratedNotification}
+                      className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500"
+                    >
+                      Generar mensaje
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openWhatsAppNotification()}
+                      className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-500"
+                    >
+                      Abrir WhatsApp
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={copyNotificationMessage}
+                      className="rounded-xl bg-slate-800 px-5 py-3 font-bold text-white hover:bg-slate-700"
+                    >
+                      Copiar mensaje
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-3 font-bold text-slate-900">
+                    Vista previa del mensaje
+                  </h3>
+
+                  <div className="min-h-64 rounded-2xl border border-slate-200 bg-slate-50 p-5 whitespace-pre-wrap text-slate-700">
+                    {generatedNotificationMessage ||
+                      buildNotificationMessage() ||
+                      "Seleccioná un cliente y generá un mensaje."}
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900">
+                    Esta función abre WhatsApp manualmente. No envía mensajes
+                    automáticos ni usa API paga.
+                  </div>
+                </div>
+              </div>
+            </Panel>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+              <Panel title="Facturas pendientes">
+                <div className="space-y-3">
+                  {pendingInvoiceNotifications.map((invoice) => (
+                    <div
+                      key={`pending-notification-${invoice.id}`}
+                      className="rounded-xl border border-slate-200 bg-white p-4"
+                    >
+                      <p className="font-bold text-slate-900">
+                        {invoice.customer_name ||
+                          `Cliente ${invoice.customer_id}`}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        Factura #{invoice.id} · $
+                        {invoice.amount || 0} · vence {invoice.due_date || "-"}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          quickWhatsAppForInvoice(invoice, "payment_reminder")
+                        }
+                        className="mt-3 rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-500"
+                      >
+                        WhatsApp
+                      </button>
+                    </div>
+                  ))}
+
+                  {pendingInvoiceNotifications.length === 0 && (
+                    <p className="text-slate-500">
+                      No hay facturas pendientes para notificar.
+                    </p>
+                  )}
+                </div>
+              </Panel>
+
+              <Panel title="Promesas de pago">
+                <div className="space-y-3">
+                  {promiseNotifications.map((invoice) => (
+                    <div
+                      key={`promise-notification-${invoice.id}`}
+                      className="rounded-xl border border-slate-200 bg-white p-4"
+                    >
+                      <p className="font-bold text-slate-900">
+                        {invoice.customer_name ||
+                          `Cliente ${invoice.customer_id}`}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        Prometió pagar:{" "}
+                        {invoice.payment_promise_date || "-"}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          quickWhatsAppForInvoice(invoice, "payment_promise")
+                        }
+                        className="mt-3 rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-500"
+                      >
+                        WhatsApp
+                      </button>
+                    </div>
+                  ))}
+
+                  {promiseNotifications.length === 0 && (
+                    <p className="text-slate-500">
+                      No hay promesas de pago activas.
+                    </p>
+                  )}
+                </div>
+              </Panel>
+
+              <Panel title="Tickets abiertos">
+                <div className="space-y-3">
+                  {ticketNotifications.map((ticket) => (
+                    <div
+                      key={`ticket-notification-${ticket.id}`}
+                      className="rounded-xl border border-slate-200 bg-white p-4"
+                    >
+                      <p className="font-bold text-slate-900">
+                        {ticket.title || `Ticket #${ticket.id}`}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {ticket.customer_name || `Cliente ${ticket.customer_id}`} ·{" "}
+                        {ticket.status || "-"}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const customer =
+                            getCustomerById(ticket.customer_id) ||
+                            {
+                              id: ticket.customer_id,
+                              name: ticket.customer_name || "",
+                              phone: ticket.customer_phone || "",
+                              pppoe_username:
+                                ticket.customer_pppoe_username || "",
+                              remote_address: ticket.customer_ip || "",
+                            };
+
+                          const message = buildNotificationMessage(
+                            "ticket_update",
+                            customer,
+                            null
+                          );
+
+                          openWhatsAppNotification(customer, message);
+                        }}
+                        className="mt-3 rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-500"
+                      >
+                        WhatsApp
+                      </button>
+                    </div>
+                  ))}
+
+                  {ticketNotifications.length === 0 && (
+                    <p className="text-slate-500">
+                      No hay tickets abiertos para notificar.
+                    </p>
+                  )}
+                </div>
+              </Panel>
+            </div>
           </Module>
         )}
 
