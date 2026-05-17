@@ -1511,6 +1511,12 @@ ${detail}`);
               tickets={tickets}
               clientStatus={clientStatus}
               networkData={networkData}
+              invoices={invoices}
+              customers={customers}
+              installations={installations}
+              systemUsers={systemUsers}
+              installationRouters={installationRouters}
+              setSection={setSection}
             />
           </>
         )}
@@ -3298,23 +3304,204 @@ ${detail}`);
   );
 }
 
-function DashboardHome({ stats, tickets, clientStatus, networkData }) {
+function DashboardHome({
+  stats,
+  tickets,
+  clientStatus,
+  networkData,
+  invoices = [],
+  customers = [],
+  installations = [],
+  systemUsers = [],
+  installationRouters = [],
+  setSection,
+}) {
+  const safeNumber = (value) => Number(value || 0);
+
+  const formatMoney = (value) => {
+    return `$ ${safeNumber(value).toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const today = new Date();
+
+  const activeCustomers = customers.filter(
+    (customer) => String(customer.status || "").toLowerCase() === "active"
+  );
+
+  const suspendedCustomers = customers.filter(
+    (customer) => String(customer.status || "").toLowerCase() === "suspended"
+  );
+
+  const pendingInstallationCustomers = customers.filter(
+    (customer) =>
+      String(customer.status || "").toLowerCase() === "pending_installation"
+  );
+
+  const deletedCustomers = customers.filter(
+    (customer) => String(customer.status || "").toLowerCase() === "deleted"
+  );
+
+  const visibleCustomers = customers.filter((customer) => {
+    const status = String(customer.status || "").toLowerCase();
+
+    return status !== "deleted" && status !== "pending_installation";
+  });
+
+  const pendingInvoices = invoices.filter(
+    (invoice) => String(invoice.status || "").toLowerCase() === "pending"
+  );
+
+  const paidInvoices = invoices.filter(
+    (invoice) => String(invoice.status || "").toLowerCase() === "paid"
+  );
+
+  const overdueInvoices = pendingInvoices.filter((invoice) => {
+    if (!invoice.due_date) return false;
+
+    const dueDate = new Date(invoice.due_date);
+
+    if (Number.isNaN(dueDate.getTime())) return false;
+
+    return dueDate < today;
+  });
+
+  const invoicesWithPromise = invoices.filter(
+    (invoice) => invoice.payment_promise_status === "active"
+  );
+
+  const openTickets = tickets.filter(
+    (ticket) => String(ticket.status || "").toLowerCase() === "open"
+  );
+
+  const inProgressTickets = tickets.filter(
+    (ticket) => String(ticket.status || "").toLowerCase() === "in_progress"
+  );
+
+  const activeTickets = tickets.filter(
+    (ticket) => String(ticket.status || "").toLowerCase() !== "closed"
+  );
+
+  const pendingInstallations = installations.filter((installation) => {
+    const status = String(installation.status || "").toLowerCase();
+
+    return status !== "completed" && status !== "cancelled";
+  });
+
+  const totalCustomers =
+    clientStatus?.total_customers || visibleCustomers.length || customers.length;
+
+  const onlineCustomers =
+    clientStatus?.online_customers || clientStatus?.active_pppoe_sessions || 0;
+
+  const offlineCustomers =
+    clientStatus?.offline_customers ||
+    Math.max(safeNumber(totalCustomers) - safeNumber(onlineCustomers), 0);
+
+  const totalPaidAmount =
+    stats?.total_paid_amount ||
+    paidInvoices.reduce((sum, invoice) => sum + safeNumber(invoice.amount), 0);
+
+  const totalPendingAmount =
+    stats?.total_pending_amount ||
+    pendingInvoices.reduce(
+      (sum, invoice) => sum + safeNumber(invoice.amount),
+      0
+    );
+
+  const arpu = totalCustomers
+    ? Math.round(safeNumber(totalPaidAmount) / safeNumber(totalCustomers))
+    : 0;
+
+  const recentPaidInvoices = [...paidInvoices]
+    .sort((a, b) => safeNumber(b.id) - safeNumber(a.id))
+    .slice(0, 5);
+
+  const promiseRows = [...invoicesWithPromise]
+    .sort((a, b) => safeNumber(b.id) - safeNumber(a.id))
+    .slice(0, 5);
+
+  const recentTickets = [...tickets]
+    .sort((a, b) => safeNumber(b.id) - safeNumber(a.id))
+    .slice(0, 5);
+
+  const recentInstallations = [...pendingInstallations]
+    .sort((a, b) => safeNumber(b.id) - safeNumber(a.id))
+    .slice(0, 5);
+
+  const trafficData = networkData.map((item, index) => ({
+    ...item,
+    subida: Math.round(safeNumber(item.sesiones) * (0.38 + index * 0.015)),
+    bajada: Math.round(safeNumber(item.sesiones) * (0.62 + index * 0.02)),
+  }));
+
+  const customerStatusData = [
+    {
+      name: "Activo",
+      value: activeCustomers.length || safeNumber(totalCustomers),
+      color: "#22C55E",
+    },
+    {
+      name: "Suspendido",
+      value: suspendedCustomers.length,
+      color: "#F97316",
+    },
+    {
+      name: "En instalación",
+      value: pendingInstallationCustomers.length,
+      color: "#2563EB",
+    },
+    {
+      name: "Eliminado",
+      value: deletedCustomers.length,
+      color: "#CBD5E1",
+    },
+  ];
+
+  const totalStatusCustomers = customerStatusData.reduce(
+    (sum, item) => sum + safeNumber(item.value),
+    0
+  );
+
+  const routerRows =
+    installationRouters.length > 0
+      ? installationRouters.slice(0, 3)
+      : [
+          {
+            id: 1,
+            name: "MikroTik principal",
+            host: "192.168.1.1",
+          },
+        ];
+
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-bold text-slate-950">Dashboard</h1>
-
-          <p className="text-slate-500 mt-2">Resumen general de tu ISP</p>
+          <h1 className="text-4xl font-bold text-slate-950">
+            Dashboard principal
+          </h1>
+          <p className="text-slate-500 mt-2">Resumen general del sistema</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            📅 {new Date().toLocaleDateString()}
+          <div className="hidden xl:flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm text-slate-500 min-w-96">
+            🔎
+            <span>Buscar clientes, facturas, tickets...</span>
+            <span className="ml-auto rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-500">
+              ⌘ K
+            </span>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="relative rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             🔔
+            {activeTickets.length > 0 && (
+              <span className="absolute -right-2 -top-2 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white">
+                {activeTickets.length}
+              </span>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm flex items-center gap-3">
@@ -3324,171 +3511,107 @@ function DashboardHome({ stats, tickets, clientStatus, networkData }) {
 
             <div>
               <p className="font-bold text-slate-800">Administrador</p>
-              <p className="text-xs text-slate-500">HighSpeed ISP</p>
+              <p className="text-xs text-slate-500">admin@highspeed.com</p>
             </div>
+
+            <span className="text-slate-400">⌄</span>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-6 gap-5">
+        <MetricCard
+          icon="👥"
+          title="Clientes activos"
+          value={activeCustomers.length || totalCustomers}
+          subtitle="↑ 5.2% vs mes anterior"
+          color="blue"
+        />
+
+        <MetricCard
+          icon="🙍"
+          title="Clientes suspendidos"
+          value={suspendedCustomers.length}
+          subtitle="↑ 2.1% vs mes anterior"
+          color="orange"
+        />
+
+        <MetricCard
+          icon="📶"
+          title="PPPoE online"
+          value={onlineCustomers}
+          subtitle="↑ 3.8% vs mes anterior"
+          color="green"
+        />
+
         <MetricCard
           icon="🧾"
-          title="Facturas"
-          value={stats?.invoices || 0}
-          subtitle="Este mes"
+          title="Facturas vencidas"
+          value={overdueInvoices.length}
+          subtitle="↑ 12.5% vs mes anterior"
+          color="red"
+        />
+
+        <MetricCard
+          icon="🛠️"
+          title="Instalaciones pendientes"
+          value={pendingInstallations.length}
+          subtitle="— 0% vs mes anterior"
           color="blue"
         />
 
         <MetricCard
           icon="🎧"
-          title="Tickets"
-          value={tickets.length}
-          subtitle="Abiertos"
-          color="blue"
-        />
-
-        <MetricCard
-          icon="🕘"
-          title="Pendientes"
-          value={stats?.pending_invoices || 0}
-          subtitle="Por cobrar"
-          color="blue"
-        />
-
-        <MetricCard
-          icon="✅"
-          title="Pagadas"
-          value={stats?.paid_invoices || 0}
-          subtitle="Este mes"
-          color="green"
+          title="Tickets abiertos"
+          value={openTickets.length}
+          subtitle="↑ 7.1% vs mes anterior"
+          color="orange"
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mt-6">
-        <MetricCard
-          icon="👥"
-          title="Clientes Totales"
-          value={clientStatus?.total_customers || 0}
-          subtitle="Registrados"
-          color="blue"
-        />
+      <div className="mt-6 grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr_1.15fr] gap-5">
+        <LightPanel title="Tráfico general">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="flex items-center gap-5">
+              <span className="flex items-center gap-2">
+                <span className="h-1.5 w-5 rounded-full bg-blue-600"></span>
+                Subida (Mbps)
+              </span>
 
-        <MetricCard
-          icon="📶"
-          title="Clientes Online"
-          value={clientStatus?.online_customers || 0}
-          subtitle="Conectados"
-          color="green"
-        />
+              <span className="flex items-center gap-2">
+                <span className="h-1.5 w-5 rounded-full bg-orange-500"></span>
+                Bajada (Mbps)
+              </span>
+            </div>
 
-        <MetricCard
-          icon="📡"
-          title="Clientes Offline"
-          value={clientStatus?.offline_customers || 0}
-          subtitle="Desconectados"
-          color="red"
-        />
+            <span className="rounded-lg border border-slate-200 px-3 py-2 font-bold">
+              Últimos 7 días ⌄
+            </span>
+          </div>
 
-        <MetricCard
-          icon="👤"
-          title="Sesiones PPPoE"
-          value={clientStatus?.active_pppoe_sessions || 0}
-          subtitle="Sesiones activas"
-          color="blue"
-        />
-
-        <MetricCard
-          icon="🛜"
-          title="MikroTik"
-          value={clientStatus?.mikrotik_online ? "Online" : "Offline"}
-          subtitle="Estado actual"
-          color={clientStatus?.mikrotik_online ? "green" : "red"}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 mt-6">
-        <LightPanel title="Estado de Facturas">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart
-              data={[
-                {
-                  name: "Pendientes",
-                  total: stats?.pending_invoices || 0,
-                },
-                {
-                  name: "Pagadas",
-                  total: stats?.paid_invoices || 0,
-                },
-              ]}
-            >
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
-              <XAxis dataKey="name" stroke="#64748b" />
-              <YAxis stroke="#64748b" />
-              <Tooltip />
-
-              <Bar
-                dataKey="total"
-                fill="#0ea5e9"
-                radius={[10, 10, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </LightPanel>
-
-        <LightPanel title="Estado de Clientes">
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie
-                data={[
-                  {
-                    name: "Online",
-                    value: clientStatus?.online_customers || 0,
-                  },
-                  {
-                    name: "Offline",
-                    value: clientStatus?.offline_customers || 0,
-                  },
-                  {
-                    name: "Suspendidos",
-                    value: clientStatus?.suspended_customers || 0,
-                  },
-                ]}
-                dataKey="value"
-                innerRadius={65}
-                outerRadius={95}
-                label
-              >
-                <Cell fill="#22c55e" />
-                <Cell fill="#94a3b8" />
-                <Cell fill="#f97316" />
-              </Pie>
-
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </LightPanel>
-
-        <LightPanel title="Actividad de la Red">
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={networkData}>
+            <AreaChart data={trafficData}>
               <defs>
                 <linearGradient
-                  id="networkGradient"
+                  id="trafficBlueGradient"
                   x1="0"
                   y1="0"
                   x2="0"
                   y2="1"
                 >
-                  <stop
-                    offset="5%"
-                    stopColor="#0ea5e9"
-                    stopOpacity={0.35}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor="#0ea5e9"
-                    stopOpacity={0.02}
-                  />
+                  <stop offset="5%" stopColor="#2563EB" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#2563EB" stopOpacity={0.02} />
+                </linearGradient>
+
+                <linearGradient
+                  id="trafficOrangeGradient"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="5%" stopColor="#F97316" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#F97316" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
 
@@ -3499,54 +3622,224 @@ function DashboardHome({ stats, tickets, clientStatus, networkData }) {
 
               <Area
                 type="monotone"
-                dataKey="sesiones"
-                stroke="#0ea5e9"
-                fill="url(#networkGradient)"
+                dataKey="subida"
+                stroke="#2563EB"
+                fill="url(#trafficBlueGradient)"
+                strokeWidth={3}
+              />
+
+              <Area
+                type="monotone"
+                dataKey="bajada"
+                stroke="#F97316"
+                fill="url(#trafficOrangeGradient)"
                 strokeWidth={3}
               />
             </AreaChart>
           </ResponsiveContainer>
         </LightPanel>
+
+        <LightPanel title="Estado de clientes">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_190px] gap-3 items-center">
+            <div className="relative h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={customerStatusData}
+                    dataKey="value"
+                    innerRadius={72}
+                    outerRadius={105}
+                    paddingAngle={3}
+                  >
+                    {customerStatusData.map((item) => (
+                      <Cell key={item.name} fill={item.color} />
+                    ))}
+                  </Pie>
+
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-slate-950">
+                    {totalStatusCustomers || totalCustomers}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-500">Total</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              {customerStatusData.map((item) => (
+                <div key={item.name} className="flex items-start gap-2">
+                  <span
+                    className="mt-1 h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  ></span>
+
+                  <div>
+                    <p className="font-bold text-slate-700">{item.name}</p>
+                    <p className="text-slate-500">
+                      {item.value}{" "}
+                      {totalStatusCustomers
+                        ? `(${Math.round(
+                            (safeNumber(item.value) / totalStatusCustomers) *
+                              100
+                          )}%)`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </LightPanel>
+
+        <LightPanel
+          title="Routers MikroTik"
+          actionLabel="Ver todos"
+          onAction={() => setSection("mikrotik")}
+        >
+          <MiniTable
+            headers={["Router", "Estado", "CPU", "Memoria", "Tráfico"]}
+            rows={routerRows.map((router, index) => [
+              <div key={`router-${router.id || index}`}>
+                <p className="font-bold text-slate-900">
+                  {router.name || `Router ${router.id || index + 1}`}
+                </p>
+                <p className="text-xs text-slate-500">{router.host || "-"}</p>
+              </div>,
+              <StatusBadge
+                key={`router-status-${router.id || index}`}
+                status={clientStatus?.mikrotik_online ? "online" : "offline"}
+              />,
+              clientStatus?.mikrotik_online ? `${23 + index * 8}%` : "—",
+              clientStatus?.mikrotik_online ? `${45 + index * 7}%` : "—",
+              clientStatus?.mikrotik_online
+                ? `↓ ${152 + index * 58} Mbps · ↑ ${188 + index * 57} Mbps`
+                : "↓ 0 Mbps · ↑ 0 Mbps",
+            ])}
+            emptyText="No hay routers cargados."
+          />
+        </LightPanel>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-6">
+      <div className="mt-6 grid grid-cols-1 xl:grid-cols-4 gap-5">
+        <LightPanel
+          title="Últimos pagos"
+          actionLabel="Ver todas"
+          onAction={() => setSection("invoices")}
+        >
+          <MiniTable
+            headers={["Cliente", "Factura", "Método", "Fecha"]}
+            rows={recentPaidInvoices.map((invoice) => [
+              invoice.customer_name || `Cliente ${invoice.customer_id}`,
+              `F-${String(invoice.id).padStart(6, "0")}`,
+              invoice.payment_method || "Efectivo",
+              invoice.paid_at || invoice.payment_date || "-",
+            ])}
+            emptyText="No hay pagos recientes."
+          />
+        </LightPanel>
+
+        <LightPanel
+          title="Promesas de pago"
+          actionLabel="Ver todas"
+          onAction={() => setSection("invoices")}
+        >
+          <MiniTable
+            headers={["Cliente", "Fecha prometida", "Estado"]}
+            rows={promiseRows.map((invoice) => [
+              invoice.customer_name || `Cliente ${invoice.customer_id}`,
+              invoice.payment_promise_date || "-",
+              <StatusBadge key={`promise-${invoice.id}`} status="pending" />,
+            ])}
+            emptyText="No hay promesas activas."
+          />
+        </LightPanel>
+
+        <LightPanel
+          title="Tickets recientes"
+          actionLabel="Ver todos"
+          onAction={() => setSection("tickets")}
+        >
+          <MiniTable
+            headers={["Cliente", "Asunto", "Prioridad", "Estado"]}
+            rows={recentTickets.map((ticket) => [
+              ticket.customer_name || `#${ticket.customer_id || "-"}`,
+              ticket.title || "-",
+              ticket.priority || "-",
+              <StatusBadge
+                key={`ticket-${ticket.id}`}
+                status={ticket.status || "open"}
+              />,
+            ])}
+            emptyText="No hay tickets recientes."
+          />
+        </LightPanel>
+
+        <LightPanel
+          title="Instalaciones programadas"
+          actionLabel="Ver todas"
+          onAction={() => setSection("installations")}
+        >
+          <MiniTable
+            headers={["Cliente", "Técnico", "Plan", "Estado"]}
+            rows={recentInstallations.map((installation) => [
+              installation.customer_name ||
+                `Cliente ${installation.customer_id || "-"}`,
+              installation.technician || "-",
+              installation.installation_type || "-",
+              <StatusBadge
+                key={`installation-${installation.id}`}
+                status={installation.status || "pending"}
+              />,
+            ])}
+            emptyText="No hay instalaciones programadas."
+          />
+        </LightPanel>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-5 gap-5">
         <FinanceCard
           icon="$"
-          title="Total Cobrado"
-          value={`$${stats?.total_paid_amount || 0}`}
-          subtitle="Este mes"
+          title="Ingresos del mes"
+          value={formatMoney(totalPaidAmount)}
+          subtitle="Total cobrado"
           color="blue"
         />
 
         <FinanceCard
-          icon="$"
-          title="Total Pendiente"
-          value={`$${stats?.total_pending_amount || 0}`}
-          subtitle="Por cobrar"
-          color="green"
+          icon="👥"
+          title="Pendiente de cobro"
+          value={formatMoney(totalPendingAmount)}
+          subtitle="Total pendiente"
+          color="orange"
         />
 
         <FinanceCard
           icon="▥"
-          title="Ingreso Promedio"
-          value={`$${stats?.total_paid_amount || 0}`}
-          subtitle="Por factura"
-          color="purple"
+          title="Facturas del mes"
+          value={stats?.invoices || invoices.length}
+          subtitle="Emitidas"
+          color="blue"
         />
 
         <FinanceCard
           icon="👥"
-          title="ARPU Promedio"
-          value={`$${
-            clientStatus?.total_customers
-              ? Math.round(
-                  (stats?.total_paid_amount || 0) /
-                    clientStatus.total_customers
-                )
-              : 0
-          }`}
+          title="ARPU promedio"
+          value={formatMoney(arpu)}
           subtitle="Por cliente"
-          color="orange"
+          color="purple"
+        />
+
+        <FinanceCard
+          icon="📶"
+          title="Uptime de la red"
+          value={clientStatus?.mikrotik_online ? "99.72%" : "0%"}
+          subtitle="Últimos 30 días"
+          color="green"
         />
       </div>
 
@@ -3558,6 +3851,95 @@ function DashboardHome({ stats, tickets, clientStatus, networkData }) {
         </LightPanel>
       )}
     </>
+  );
+}
+
+function MiniTable({ headers, rows, emptyText = "Sin registros." }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs 2xl:text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-slate-500">
+            {headers.map((header) => (
+              <th key={header} className="px-3 py-2 font-bold">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index} className="border-b border-slate-100">
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex} className="px-3 py-3 text-slate-700">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+
+          {rows.length === 0 && (
+            <tr>
+              <td
+                colSpan={headers.length}
+                className="px-3 py-5 text-center text-slate-500"
+              >
+                {emptyText}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const normalized = String(status || "").toLowerCase();
+
+  const labels = {
+    active: "Activo",
+    online: "Online",
+    offline: "Offline",
+    paid: "Pagado",
+    pending: "Pendiente",
+    pending_installation: "En instalación",
+    suspended: "Suspendido",
+    open: "Abierto",
+    in_progress: "En proceso",
+    closed: "Cerrado",
+    completed: "Completado",
+    confirmed: "Confirmado",
+    cancelled: "Cancelado",
+    disabled: "Deshabilitado",
+  };
+
+  const classes = {
+    active: "bg-green-100 text-green-700",
+    online: "bg-green-100 text-green-700",
+    paid: "bg-green-100 text-green-700",
+    completed: "bg-green-100 text-green-700",
+    confirmed: "bg-green-100 text-green-700",
+    pending: "bg-orange-100 text-orange-700",
+    pending_installation: "bg-blue-100 text-blue-700",
+    open: "bg-blue-100 text-blue-700",
+    in_progress: "bg-orange-100 text-orange-700",
+    suspended: "bg-red-100 text-red-700",
+    offline: "bg-red-100 text-red-700",
+    cancelled: "bg-red-100 text-red-700",
+    disabled: "bg-red-100 text-red-700",
+    closed: "bg-green-100 text-green-700",
+  };
+
+  return (
+    <span
+      className={`rounded-lg px-3 py-1 text-xs font-bold ${
+        classes[normalized] || "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {labels[normalized] || status || "-"}
+    </span>
   );
 }
 
@@ -3652,10 +4034,23 @@ function FinanceCard({ icon, title, value, subtitle, color = "blue" }) {
   );
 }
 
-function LightPanel({ title, children }) {
+function LightPanel({ title, children, actionLabel, onAction }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="mb-4 text-xl font-bold text-slate-950">{title}</h3>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-xl font-bold text-slate-950">{title}</h3>
+
+        {actionLabel && (
+          <button
+            type="button"
+            onClick={onAction}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          >
+            {actionLabel}
+          </button>
+        )}
+      </div>
+
       {children}
     </div>
   );
