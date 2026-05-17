@@ -58,6 +58,17 @@ function Dashboard({ onLogout }) {
   const [ticketCustomerSearch, setTicketCustomerSearch] = useState("");
   const [ticketFormOpen, setTicketFormOpen] = useState(false);
 
+  const [companySettings, setCompanySettings] = useState({
+    brand: "",
+    business_name: "",
+    cuit: "",
+    locality: "",
+    phone: "",
+    address: "",
+    email: "",
+    website: "",
+  });
+
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
 
@@ -136,6 +147,7 @@ function Dashboard({ onLogout }) {
   const canManageInstallations = ["admin", "tecnico"].includes(role);
 
   const canViewMikrotik = role === "admin";
+  const canViewCompanySettings = role === "admin";
   const canViewStats = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewClientStatus = [
@@ -218,6 +230,16 @@ function Dashboard({ onLogout }) {
       if (canViewClientStatus) {
         const res = await axios.get(`${API}/dashboard/clients-status`, headers);
         setClientStatus(res.data);
+      }
+
+      if (canViewCompanySettings) {
+        const res = await axios
+          .get(`${API}/company-settings`, headers)
+          .catch(() => null);
+
+        if (res?.data?.settings) {
+          setCompanySettings(res.data.settings);
+        }
       }
     } catch (error) {
       console.error("Error cargando dashboard:", error);
@@ -1160,6 +1182,39 @@ ${detail}`);
       installation.status !== "cancelled"
   );
 
+  const updateCompanySetting = (field, value) => {
+    setCompanySettings((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const saveCompanySettings = async (e) => {
+    e.preventDefault();
+
+    try {
+      const res = await axios.put(
+        `${API}/company-settings`,
+        companySettings,
+        getAuthHeaders()
+      );
+
+      setCompanySettings(res.data?.settings || companySettings);
+
+      alert("Datos de empresa guardados correctamente.");
+    } catch (error) {
+      console.error("Error guardando datos de empresa:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudieron guardar los datos de empresa.\n\n${detail}`);
+    }
+  };
+
   const networkData = [
     { name: "15 May", sesiones: 580 },
     { name: "16 May", sesiones: 490 },
@@ -1246,6 +1301,15 @@ ${detail}`);
               label="Instalaciones"
               active={section === "installations"}
               onClick={() => setSection("installations")}
+            />
+          )}
+
+          {canViewCompanySettings && (
+            <SidebarButton
+              icon="🏢"
+              label="Empresa"
+              active={section === "company"}
+              onClick={() => setSection("company")}
             />
           )}
 
@@ -2703,6 +2767,123 @@ ${detail}`);
                 </Panel>
               )}
             />
+          </Module>
+        )}
+
+        {section === "company" && canViewCompanySettings && (
+          <Module title="Configuración de empresa">
+            <Panel title="Datos de empresa para comprobantes">
+              <form onSubmit={saveCompanySettings} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input
+                    placeholder="Marca / Nombre comercial"
+                    value={companySettings.brand}
+                    onChange={(e) =>
+                      updateCompanySetting("brand", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="Razón social / Titular"
+                    value={companySettings.business_name}
+                    onChange={(e) =>
+                      updateCompanySetting("business_name", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="CUIT / DNI fiscal"
+                    value={companySettings.cuit}
+                    onChange={(e) =>
+                      updateCompanySetting("cuit", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="Localidad"
+                    value={companySettings.locality}
+                    onChange={(e) =>
+                      updateCompanySetting("locality", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="Teléfono"
+                    value={companySettings.phone}
+                    onChange={(e) =>
+                      updateCompanySetting("phone", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="Email"
+                    value={companySettings.email}
+                    onChange={(e) =>
+                      updateCompanySetting("email", e.target.value)
+                    }
+                  />
+
+                  <Input
+                    placeholder="Sitio web"
+                    value={companySettings.website}
+                    onChange={(e) =>
+                      updateCompanySetting("website", e.target.value)
+                    }
+                  />
+
+                  <textarea
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400 min-h-28 md:col-span-2"
+                    placeholder="Dirección"
+                    value={companySettings.address}
+                    onChange={(e) =>
+                      updateCompanySetting("address", e.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                  Estos datos se usan en el PDF individual de cada factura /
+                  comprobante.
+                </div>
+
+                <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500">
+                  💾 Guardar datos de empresa
+                </button>
+              </form>
+            </Panel>
+
+            <Panel title="Vista previa">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <h2 className="text-2xl font-bold text-slate-950">
+                  {companySettings.brand || "Nombre comercial"}
+                </h2>
+
+                <p className="text-slate-600 mt-1">
+                  {companySettings.business_name || "Razón social"}
+                </p>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-700">
+                  <p>
+                    <b>CUIT:</b> {companySettings.cuit || "-"}
+                  </p>
+                  <p>
+                    <b>Localidad:</b> {companySettings.locality || "-"}
+                  </p>
+                  <p>
+                    <b>Teléfono:</b> {companySettings.phone || "-"}
+                  </p>
+                  <p>
+                    <b>Email:</b> {companySettings.email || "-"}
+                  </p>
+                  <p>
+                    <b>Sitio web:</b> {companySettings.website || "-"}
+                  </p>
+                  <p className="md:col-span-2">
+                    <b>Dirección:</b> {companySettings.address || "-"}
+                  </p>
+                </div>
+              </div>
+            </Panel>
           </Module>
         )}
 

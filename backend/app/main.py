@@ -32,6 +32,7 @@ from app.routers.invoice_pdf_router import router as invoice_pdf_router
 from app.routers.invoice_receipt_router import router as invoice_receipt_router
 
 from app.routers.cashbox_router import router as cashbox_router
+from app.routers.company_settings_router import router as company_settings_router
 
 from app.routers.ticket_router import router as ticket_router
 from app.routers.installation_router import router as installation_router
@@ -94,6 +95,7 @@ app.include_router(invoice_pdf_router)
 app.include_router(invoice_receipt_router)
 
 app.include_router(cashbox_router)
+app.include_router(company_settings_router)
 
 app.include_router(auth_router)
 app.include_router(mikrotik_router)

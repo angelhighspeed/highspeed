@@ -118,6 +118,59 @@ def get_db():
         db.close()
 
 
+def ensure_company_settings_table_for_pdf():
+    dialect = engine.dialect.name
+
+    try:
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS company_settings (
+                            key VARCHAR PRIMARY KEY,
+                            value TEXT
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS company_settings (
+                            key TEXT PRIMARY KEY,
+                            value TEXT
+                        )
+                        """
+                    )
+                )
+    except Exception as e:
+        print("No se pudo asegurar company_settings:", e)
+
+
+def get_company_settings_for_pdf(db: Session):
+    ensure_company_settings_table_for_pdf()
+
+    settings = COMPANY_DATA.copy()
+
+    try:
+        rows = db.execute(
+            text("SELECT key, value FROM company_settings")
+        ).mappings().all()
+
+        for row in rows:
+            key = row["key"]
+            value = row["value"]
+
+            if key in settings:
+                settings[key] = value or ""
+    except Exception as e:
+        print("No se pudieron leer datos de empresa:", e)
+
+    return settings
+
+
 def get_first_attr(obj, names, default=None):
     if obj is None:
         return default
@@ -219,7 +272,9 @@ def find_logo_path():
     return None
 
 
-def receipt_background(canvas: Canvas, doc):
+def receipt_background(canvas: Canvas, doc, company_data=None):
+    company_data = company_data or COMPANY_DATA
+
     page_width, page_height = A4
 
     canvas.saveState()
@@ -241,7 +296,7 @@ def receipt_background(canvas: Canvas, doc):
     canvas.drawString(
         1.4 * cm,
         0.55 * cm,
-        f"{COMPANY_DATA['brand']} - Comprobante generado por sistema",
+        f"{company_data.get('brand', COMPANY_DATA['brand'])} - Comprobante generado por sistema",
     )
 
     canvas.restoreState()
@@ -288,7 +343,9 @@ def get_customer_name(customer, invoice):
     return full_name or f"Cliente ID {getattr(invoice, 'customer_id', '-')}"
 
 
-def build_invoice_pdf(invoice: Invoice, customer: Customer | None):
+def build_invoice_pdf(invoice: Invoice, customer: Customer | None, company_data=None):
+    company_data = company_data or COMPANY_DATA
+
     output = BytesIO()
 
     doc = SimpleDocTemplate(
@@ -385,16 +442,16 @@ def build_invoice_pdf(invoice: Invoice, customer: Customer | None):
     elements.append(Spacer(1, 0.2 * cm))
 
     company_rows = [
-        ["Empresa", COMPANY_DATA["business_name"]],
-        ["Marca", COMPANY_DATA["brand"]],
-        ["CUIT", COMPANY_DATA["cuit"]],
-        ["Localidad", COMPANY_DATA["locality"]],
-        ["Direccion", COMPANY_DATA["address"]],
-        ["Telefono", COMPANY_DATA["phone"]],
+        ["Empresa", company_data.get("business_name", "")],
+        ["Marca", company_data.get("brand", "")],
+        ["CUIT", company_data.get("cuit", "")],
+        ["Localidad", company_data.get("locality", "")],
+        ["Direccion", company_data.get("address", "")],
+        ["Telefono", company_data.get("phone", "")],
     ]
 
-    if COMPANY_DATA.get("email"):
-        company_rows.append(["Email", COMPANY_DATA["email"]])
+    if company_data.get("email"):
+        company_rows.append(["Email", company_data.get("email", "")])
 
     elements.append(Paragraph("<b>DATOS DE LA EMPRESA</b>", section_title_style))
     elements.append(make_label_value_table(company_rows, header_bg="#EFF6FF"))
@@ -489,16 +546,16 @@ def build_invoice_pdf(invoice: Invoice, customer: Customer | None):
 
     doc.build(
         elements,
-        onFirstPage=receipt_background,
-        onLaterPages=receipt_background,
+        onFirstPage=lambda canvas, doc: receipt_background(canvas, doc, company_data),
+        onLaterPages=lambda canvas, doc: receipt_background(canvas, doc, company_data),
     )
 
     output.seek(0)
     return output
 
 
-def stream_invoice_pdf(invoice: Invoice, customer: Customer | None):
-    pdf = build_invoice_pdf(invoice, customer)
+def stream_invoice_pdf(invoice: Invoice, customer: Customer | None, company_data=None):
+    pdf = build_invoice_pdf(invoice, customer, company_data)
 
     customer_name = clean_filename(get_customer_name(customer, invoice))
     filename = clean_filename(f"comprobante_factura_{invoice.id}_{customer_name}.pdf")
@@ -748,7 +805,9 @@ def export_invoice_comprobante_pdf(
 ):
     invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    return stream_invoice_pdf(invoice, customer)
+    company_data = get_company_settings_for_pdf(db)
+
+    return stream_invoice_pdf(invoice, customer, company_data)
 
 
 @router.get("/invoices/{invoice_id}/receipt-pdf")
@@ -764,7 +823,9 @@ def export_invoice_receipt_pdf(
 ):
     invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    return stream_invoice_pdf(invoice, customer)
+    company_data = get_company_settings_for_pdf(db)
+
+    return stream_invoice_pdf(invoice, customer, company_data)
 
 
 @router.get("/invoices/{invoice_id}/factura-pdf")
@@ -780,4 +841,6 @@ def export_selected_invoice_pdf(
 ):
     invoice, customer = get_invoice_and_customer(db, invoice_id)
 
-    return stream_invoice_pdf(invoice, customer)
+    company_data = get_company_settings_for_pdf(db)
+
+    return stream_invoice_pdf(invoice, customer, company_data)
