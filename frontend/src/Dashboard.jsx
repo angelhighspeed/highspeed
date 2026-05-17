@@ -69,6 +69,18 @@ function Dashboard({ onLogout }) {
     website: "",
   });
 
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [userForm, setUserForm] = useState({
+    id: null,
+    username: "",
+    password: "",
+    role: "operador",
+    full_name: "",
+    email: "",
+  });
+  const [userFormMode, setUserFormMode] = useState("create");
+  const [showUserForm, setShowUserForm] = useState(false);
+
   const [stats, setStats] = useState(null);
   const [clientStatus, setClientStatus] = useState(null);
 
@@ -148,6 +160,7 @@ function Dashboard({ onLogout }) {
 
   const canViewMikrotik = role === "admin";
   const canViewCompanySettings = role === "admin";
+  const canManageUsers = role === "admin";
   const canViewStats = ["admin", "cobrador", "operador"].includes(role);
 
   const canViewClientStatus = [
@@ -240,6 +253,14 @@ function Dashboard({ onLogout }) {
         if (res?.data?.settings) {
           setCompanySettings(res.data.settings);
         }
+      }
+
+      if (canManageUsers) {
+        const usersRes = await axios
+          .get(`${API}/users-management`, headers)
+          .catch(() => ({ data: [] }));
+
+        setSystemUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
       }
     } catch (error) {
       console.error("Error cargando dashboard:", error);
@@ -1215,6 +1236,132 @@ ${detail}`);
     }
   };
 
+  const resetUserForm = () => {
+    setUserForm({
+      id: null,
+      username: "",
+      password: "",
+      role: "operador",
+      full_name: "",
+      email: "",
+    });
+
+    setUserFormMode("create");
+  };
+
+  const editSystemUser = (user) => {
+    setUserForm({
+      id: user.id,
+      username: user.username || "",
+      password: "",
+      role: user.role || "operador",
+      full_name: user.full_name || "",
+      email: user.email || "",
+    });
+
+    setUserFormMode("edit");
+    setShowUserForm(true);
+  };
+
+  const saveSystemUser = async (e) => {
+    e.preventDefault();
+
+    try {
+      if (!userForm.username) {
+        alert("Ingresá el usuario.");
+        return;
+      }
+
+      if (userFormMode === "create" && !userForm.password) {
+        alert("Ingresá la contraseña.");
+        return;
+      }
+
+      if (userFormMode === "create") {
+        await axios.post(
+          `${API}/users-management`,
+          {
+            username: userForm.username,
+            password: userForm.password,
+            role: userForm.role,
+            full_name: userForm.full_name,
+            email: userForm.email,
+          },
+          getAuthHeaders()
+        );
+      } else {
+        await axios.put(
+          `${API}/users-management/${userForm.id}`,
+          {
+            username: userForm.username,
+            role: userForm.role,
+            full_name: userForm.full_name,
+            email: userForm.email,
+          },
+          getAuthHeaders()
+        );
+
+        if (userForm.password) {
+          await axios.put(
+            `${API}/users-management/${userForm.id}/password`,
+            {
+              password: userForm.password,
+            },
+            getAuthHeaders()
+          );
+        }
+      }
+
+      resetUserForm();
+      setShowUserForm(false);
+      await loadData();
+
+      alert("Usuario guardado correctamente.");
+    } catch (error) {
+      console.error("Error guardando usuario:", error);
+
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Error desconocido";
+
+      alert(`No se pudo guardar el usuario.\n\n${detail}`);
+    }
+  };
+
+  const disableSystemUser = async (userId) => {
+    const ok = window.confirm("¿Deshabilitar este usuario?");
+
+    if (!ok) return;
+
+    try {
+      await axios.put(
+        `${API}/users-management/${userId}/disable`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadData();
+    } catch (error) {
+      alert(error.response?.data?.detail || "No se pudo deshabilitar el usuario.");
+    }
+  };
+
+  const enableSystemUser = async (userId) => {
+    try {
+      await axios.put(
+        `${API}/users-management/${userId}/enable`,
+        {},
+        getAuthHeaders()
+      );
+
+      await loadData();
+    } catch (error) {
+      alert("No se pudo habilitar el usuario.");
+    }
+  };
+
   const networkData = [
     { name: "15 May", sesiones: 580 },
     { name: "16 May", sesiones: 490 },
@@ -1301,6 +1448,15 @@ ${detail}`);
               label="Instalaciones"
               active={section === "installations"}
               onClick={() => setSection("installations")}
+            />
+          )}
+
+          {canManageUsers && (
+            <SidebarButton
+              icon="👥"
+              label="Usuarios"
+              active={section === "users"}
+              onClick={() => setSection("users")}
             />
           )}
 
@@ -2767,6 +2923,255 @@ ${detail}`);
                 </Panel>
               )}
             />
+          </Module>
+        )}
+
+        {section === "users" && canManageUsers && (
+          <Module title="Usuarios y permisos">
+            <Panel title="Gestión de usuarios">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-950">
+                    👥 Usuarios del sistema
+                  </h2>
+                  <p className="text-slate-500">
+                    Creá usuarios y asigná permisos por rol.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetUserForm();
+                    setShowUserForm(!showUserForm);
+                  }}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500"
+                >
+                  {showUserForm ? "Cerrar formulario" : "➕ Nuevo usuario"}
+                </button>
+              </div>
+            </Panel>
+
+            <Panel title="Permisos por rol">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-bold text-slate-950">Admin</h3>
+                  <p className="text-slate-500 mt-1">
+                    Acceso total: clientes, facturas, tickets, instalaciones,
+                    MikroTik, empresa y usuarios.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-bold text-slate-950">Técnico</h3>
+                  <p className="text-slate-500 mt-1">
+                    Clientes, online, tráfico, tickets e instalaciones.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-bold text-slate-950">Operador</h3>
+                  <p className="text-slate-500 mt-1">
+                    Clientes, planes, tickets, instalaciones y dashboard.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-bold text-slate-950">Cobrador</h3>
+                  <p className="text-slate-500 mt-1">
+                    Facturas, caja, pagos, promesa de pago y comprobantes.
+                  </p>
+                </div>
+              </div>
+            </Panel>
+
+            {showUserForm && (
+              <Panel
+                title={
+                  userFormMode === "create"
+                    ? "Crear usuario"
+                    : "Editar usuario"
+                }
+              >
+                <form
+                  onSubmit={saveSystemUser}
+                  className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                >
+                  <Input
+                    placeholder="Usuario"
+                    value={userForm.username}
+                    onChange={(e) =>
+                      setUserForm({
+                        ...userForm,
+                        username: e.target.value,
+                      })
+                    }
+                  />
+
+                  <Input
+                    placeholder={
+                      userFormMode === "create"
+                        ? "Contraseña"
+                        : "Nueva contraseña opcional"
+                    }
+                    type="password"
+                    value={userForm.password}
+                    onChange={(e) =>
+                      setUserForm({
+                        ...userForm,
+                        password: e.target.value,
+                      })
+                    }
+                  />
+
+                  <Input
+                    placeholder="Nombre completo"
+                    value={userForm.full_name}
+                    onChange={(e) =>
+                      setUserForm({
+                        ...userForm,
+                        full_name: e.target.value,
+                      })
+                    }
+                  />
+
+                  <Input
+                    placeholder="Email"
+                    type="email"
+                    value={userForm.email}
+                    onChange={(e) =>
+                      setUserForm({
+                        ...userForm,
+                        email: e.target.value,
+                      })
+                    }
+                  />
+
+                  <select
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+                    value={userForm.role}
+                    onChange={(e) =>
+                      setUserForm({
+                        ...userForm,
+                        role: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="tecnico">Técnico</option>
+                    <option value="operador">Operador</option>
+                    <option value="cobrador">Cobrador</option>
+                  </select>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-500">
+                      💾 Guardar usuario
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetUserForm();
+                        setShowUserForm(false);
+                      }}
+                      className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-700 hover:bg-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </Panel>
+            )}
+
+            <Panel title="Usuarios registrados">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                      <th className="p-3">ID</th>
+                      <th className="p-3">Usuario</th>
+                      <th className="p-3">Nombre</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Rol</th>
+                      <th className="p-3">Estado</th>
+                      <th className="p-3">Acciones</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {systemUsers.map((user) => (
+                      <tr
+                        key={user.id}
+                        className="border-b border-slate-100 hover:bg-slate-50"
+                      >
+                        <td className="p-3">{user.id}</td>
+                        <td className="p-3 font-bold">{user.username}</td>
+                        <td className="p-3">{user.full_name || "-"}</td>
+                        <td className="p-3">{user.email || "-"}</td>
+                        <td className="p-3">
+                          <span className="rounded-lg bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`rounded-lg px-3 py-1 text-xs font-bold ${
+                              user.status === "active"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {user.status === "active"
+                              ? "Activo"
+                              : "Deshabilitado"}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => editSystemUser(user)}
+                              className="rounded-lg bg-yellow-500 px-3 py-2 font-bold text-slate-950 hover:bg-yellow-400"
+                            >
+                              Editar
+                            </button>
+
+                            {user.status === "active" ? (
+                              <button
+                                type="button"
+                                onClick={() => disableSystemUser(user.id)}
+                                className="rounded-lg bg-red-600 px-3 py-2 font-bold text-white hover:bg-red-500"
+                              >
+                                Deshabilitar
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => enableSystemUser(user.id)}
+                                className="rounded-lg bg-green-600 px-3 py-2 font-bold text-white hover:bg-green-500"
+                              >
+                                Habilitar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {systemUsers.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan="7"
+                          className="p-5 text-center text-slate-500"
+                        >
+                          No hay usuarios registrados.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
           </Module>
         )}
 
