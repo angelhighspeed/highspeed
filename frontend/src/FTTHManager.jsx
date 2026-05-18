@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const STORAGE_KEY = "highspeed_ftth_v2";
+const STORAGE_KEY = "highspeed_ftth_v4";
 
 const NODE_TYPES = {
   olt: { label: "OLT / Rack", icon: "🏢", color: "#2563eb" },
@@ -16,6 +16,21 @@ const CABLE_TYPES = {
   drop: { label: "Drop", color: "#f59e0b", width: 4 },
   reserve: { label: "Reserva", color: "#94a3b8", width: 4, dash: "10 8" },
 };
+
+const FIBER_COLORS = [
+  "#008000",
+  "#ffff00",
+  "#ffffff",
+  "#0000ff",
+  "#ff0000",
+  "#ff66ff",
+  "#8b3f3f",
+  "#ffb6c1",
+  "#111111",
+  "#888888",
+  "#ffa500",
+  "#00d5ff",
+];
 
 const INITIAL_NODES = [
   {
@@ -87,10 +102,24 @@ const INITIAL_CABLES = [
   },
 ];
 
+const INITIAL_SPLICES = [
+  {
+    id: "splice-01",
+    node_id: "nap-01",
+    cable_in: "cable-01",
+    fiber_in: "Azul 1",
+    cable_out: "cable-02",
+    fiber_out: "Azul 1",
+    loss_db: 0.04,
+    notes: "Fusión principal",
+  },
+];
+
 function FTTHManager() {
   const mapRef = useRef(null);
   const [nodes, setNodes] = useState(INITIAL_NODES);
   const [cables, setCables] = useState(INITIAL_CABLES);
+  const [splices, setSplices] = useState(INITIAL_SPLICES);
   const [selectedNodeId, setSelectedNodeId] = useState("nap-01");
   const [selectedCableId, setSelectedCableId] = useState("");
   const [insideNodeId, setInsideNodeId] = useState("");
@@ -108,6 +137,7 @@ function FTTHManager() {
       const data = JSON.parse(saved);
       if (Array.isArray(data.nodes)) setNodes(data.nodes);
       if (Array.isArray(data.cables)) setCables(data.cables);
+      if (Array.isArray(data.splices)) setSplices(data.splices);
       if (data.nodes?.[0]?.id) setSelectedNodeId(data.nodes[0].id);
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -130,15 +160,17 @@ function FTTHManager() {
       clients: nodes.filter((node) => node.type === "client").length,
       freePorts: Math.max(totalPorts - usedPorts, 0),
       km: (meters / 1000).toFixed(2),
+      splices: splices.length,
     };
-  }, [nodes, cables]);
+  }, [nodes, cables, splices]);
 
-  const saveNetwork = (nextNodes = nodes, nextCables = cables) => {
+  const saveNetwork = (nextNodes = nodes, nextCables = cables, nextSplices = splices) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         nodes: nextNodes,
         cables: nextCables,
+        splices: nextSplices,
         updated_at: new Date().toISOString(),
       })
     );
@@ -176,6 +208,7 @@ function FTTHManager() {
     if (!window.confirm("¿Restaurar la red demo? Se reemplaza lo guardado localmente.")) return;
     setNodes(INITIAL_NODES);
     setCables(INITIAL_CABLES);
+    setSplices(INITIAL_SPLICES);
     setSelectedNodeId("nap-01");
     setSelectedCableId("");
     localStorage.setItem(
@@ -183,6 +216,7 @@ function FTTHManager() {
       JSON.stringify({
         nodes: INITIAL_NODES,
         cables: INITIAL_CABLES,
+        splices: INITIAL_SPLICES,
         updated_at: new Date().toISOString(),
       })
     );
@@ -228,21 +262,23 @@ function FTTHManager() {
     setSelectedCableId("");
     setShowNodeForm(false);
     setNodeForm(emptyNodeForm());
-    saveNetwork(nextNodes, cables);
+    saveNetwork(nextNodes, cables, splices);
   };
 
   const deleteSelectedNode = () => {
     if (!selectedNode) return;
-    if (!window.confirm(`¿Eliminar ${selectedNode.name}? También se eliminan sus cables.`)) return;
+    if (!window.confirm(`¿Eliminar ${selectedNode.name}? También se eliminan sus cables y fusiones.`)) return;
 
     const nextNodes = nodes.filter((node) => node.id !== selectedNode.id);
     const nextCables = cables.filter((cable) => cable.from !== selectedNode.id && cable.to !== selectedNode.id);
+    const nextSplices = splices.filter((splice) => splice.node_id !== selectedNode.id);
 
     setNodes(nextNodes);
     setCables(nextCables);
+    setSplices(nextSplices);
     setSelectedNodeId(nextNodes[0]?.id || "");
     setSelectedCableId("");
-    saveNetwork(nextNodes, nextCables);
+    saveNetwork(nextNodes, nextCables, nextSplices);
   };
 
   const startCreateCable = () => {
@@ -289,7 +325,7 @@ function FTTHManager() {
     setSelectedNodeId("");
     setShowCableForm(false);
     setCableForm(emptyCableForm());
-    saveNetwork(nodes, nextCables);
+    saveNetwork(nodes, nextCables, splices);
   };
 
   const deleteSelectedCable = () => {
@@ -297,10 +333,12 @@ function FTTHManager() {
     if (!window.confirm(`¿Eliminar cable ${selectedCable.name}?`)) return;
 
     const nextCables = cables.filter((cable) => cable.id !== selectedCable.id);
+    const nextSplices = splices.filter((splice) => splice.cable_in !== selectedCable.id && splice.cable_out !== selectedCable.id);
 
     setCables(nextCables);
+    setSplices(nextSplices);
     setSelectedCableId("");
-    saveNetwork(nodes, nextCables);
+    saveNetwork(nodes, nextCables, nextSplices);
   };
 
   const toggleCableCut = () => {
@@ -316,7 +354,7 @@ function FTTHManager() {
     );
 
     setCables(nextCables);
-    saveNetwork(nodes, nextCables);
+    saveNetwork(nodes, nextCables, splices);
   };
 
   const addSplitterOnCable = () => {
@@ -379,7 +417,12 @@ function FTTHManager() {
     setCables(nextCables);
     setSelectedNodeId(newNode.id);
     setSelectedCableId("");
-    saveNetwork(nextNodes, nextCables);
+    saveNetwork(nextNodes, nextCables, splices);
+  };
+
+  const saveSplicesFromModal = (nextSplices) => {
+    setSplices(nextSplices);
+    saveNetwork(nodes, cables, nextSplices);
   };
 
   return (
@@ -388,7 +431,7 @@ function FTTHManager() {
         <div>
           <h1 className="text-4xl font-bold text-slate-950">Red FTTH</h1>
           <p className="mt-2 text-slate-500">
-            Mapa editable base: NAPs movibles, cables, splitters sobre cable y guardado local.
+            Mapa editable: NAPs movibles, cables, splitters sobre cable, interior de caja y fusiones básicas.
           </p>
         </div>
 
@@ -400,12 +443,13 @@ function FTTHManager() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-7">
         <Stat title="Puntos" value={stats.points} />
         <Stat title="Cables" value={stats.cables} />
         <Stat title="NAPs" value={stats.naps} />
         <Stat title="Clientes" value={stats.clients} />
         <Stat title="Puertos libres" value={stats.freePorts} />
+        <Stat title="Fusiones" value={stats.splices} />
         <Stat title="Cable" value={`${stats.km} km`} />
       </div>
 
@@ -423,7 +467,7 @@ function FTTHManager() {
           </div>
 
           <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Arrastrá las NAPs/cajas dentro del mapa. Al soltar, tocá Guardar o se guarda automáticamente.
+            Entrá a una NAP con “Ver interior” para cargar fusiones entre cables y ver puertos.
           </div>
 
           <div className="mt-5 space-y-2 text-sm">
@@ -587,6 +631,10 @@ function FTTHManager() {
         <InsideBoxModal
           node={insideNode}
           cables={cables.filter((cable) => cable.from === insideNode.id || cable.to === insideNode.id)}
+          allCables={cables}
+          splices={splices.filter((splice) => splice.node_id === insideNode.id)}
+          allSplices={splices}
+          saveSplices={saveSplicesFromModal}
           close={() => setInsideNodeId("")}
         />
       )}
@@ -594,9 +642,18 @@ function FTTHManager() {
   );
 }
 
-function InsideBoxModal({ node, cables, close }) {
+function InsideBoxModal({ node, cables, allCables, splices, allSplices, saveSplices, close }) {
   const portsTotal = Math.min(Number(node.ports_total || getSplitterPorts(node.splitter || "1:8") || 8), 16);
   const portsUsed = Number(node.ports_used || 0);
+  const [spliceForm, setSpliceForm] = useState({
+    cable_in: cables[0]?.id || "",
+    fiber_in: "",
+    cable_out: cables[1]?.id || cables[0]?.id || "",
+    fiber_out: "",
+    loss_db: "0.04",
+    notes: "",
+  });
+
   const ports = Array.from({ length: portsTotal }, (_, index) => ({
     port: String(index + 1).padStart(2, "0"),
     used: index < portsUsed,
@@ -610,6 +667,42 @@ function InsideBoxModal({ node, cables, close }) {
     ? (inputPower - splitterLoss).toFixed(2)
     : node.power_out || "-";
 
+  const addSplice = (event) => {
+    event.preventDefault();
+
+    if (!spliceForm.cable_in || !spliceForm.cable_out || !spliceForm.fiber_in || !spliceForm.fiber_out) {
+      alert("Completá cable entrada/salida y fibra entrada/salida.");
+      return;
+    }
+
+    const nextSplice = {
+      id: `splice-${Date.now()}`,
+      node_id: node.id,
+      cable_in: spliceForm.cable_in,
+      fiber_in: spliceForm.fiber_in,
+      cable_out: spliceForm.cable_out,
+      fiber_out: spliceForm.fiber_out,
+      loss_db: Number(spliceForm.loss_db || 0),
+      notes: spliceForm.notes || "",
+    };
+
+    saveSplices([...allSplices, nextSplice]);
+
+    setSpliceForm({
+      cable_in: cables[0]?.id || "",
+      fiber_in: "",
+      cable_out: cables[1]?.id || cables[0]?.id || "",
+      fiber_out: "",
+      loss_db: "0.04",
+      notes: "",
+    });
+  };
+
+  const deleteSplice = (spliceId) => {
+    if (!window.confirm("¿Eliminar esta fusión?")) return;
+    saveSplices(allSplices.filter((splice) => splice.id !== spliceId));
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] bg-slate-950/60 p-3">
       <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[#c9c9c9] shadow-2xl">
@@ -617,15 +710,11 @@ function InsideBoxModal({ node, cables, close }) {
           <div>
             <h2 className="font-bold">Punto de Acceso: {node.name}</h2>
             <p className="text-xs text-white/80">
-              Interior básico de caja: splitter, puertos, fibras, cables conectados y pérdidas.
+              Interior de caja: splitter, puertos, fibras visuales, cables conectados y fusiones.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={close}
-            className="rounded bg-red-500 px-3 py-1 font-bold text-white"
-          >
+          <button type="button" onClick={close} className="rounded bg-red-500 px-3 py-1 font-bold text-white">
             ✕
           </button>
         </div>
@@ -645,7 +734,7 @@ function InsideBoxModal({ node, cables, close }) {
           </div>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[1fr_360px]">
+        <div className="grid flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[1fr_380px]">
           <div className="overflow-auto bg-[#c7c7c7] p-8">
             <div className="relative min-h-[720px] min-w-[1180px]">
               <svg className="absolute left-0 top-0 h-[720px] w-[1180px] overflow-visible">
@@ -705,18 +794,53 @@ function InsideBoxModal({ node, cables, close }) {
               <Info label="Puertos" value={`${portsUsed}/${portsTotal}`} />
             </Panel>
 
-            <Panel title="Cables conectados">
-              {cables.map((cable) => (
-                <div key={cable.id} className="mb-2 rounded-xl bg-slate-50 p-3 text-sm">
-                  <b>{cable.name}</b>
+            <Panel title="Registrar fusión">
+              <form onSubmit={addSplice} className="space-y-3">
+                <Select value={spliceForm.cable_in} onChange={(event) => setSpliceForm({ ...spliceForm, cable_in: event.target.value })}>
+                  <option value="">Cable entrada</option>
+                  {cables.map((cable) => (
+                    <option key={cable.id} value={cable.id}>{cable.name}</option>
+                  ))}
+                </Select>
+
+                <Input placeholder="Fibra entrada. Ej: Azul 1" value={spliceForm.fiber_in} onChange={(event) => setSpliceForm({ ...spliceForm, fiber_in: event.target.value })} />
+
+                <Select value={spliceForm.cable_out} onChange={(event) => setSpliceForm({ ...spliceForm, cable_out: event.target.value })}>
+                  <option value="">Cable salida</option>
+                  {cables.map((cable) => (
+                    <option key={cable.id} value={cable.id}>{cable.name}</option>
+                  ))}
+                </Select>
+
+                <Input placeholder="Fibra salida. Ej: Verde 2" value={spliceForm.fiber_out} onChange={(event) => setSpliceForm({ ...spliceForm, fiber_out: event.target.value })} />
+                <Input type="number" step="0.01" placeholder="Pérdida dB" value={spliceForm.loss_db} onChange={(event) => setSpliceForm({ ...spliceForm, loss_db: event.target.value })} />
+                <Input placeholder="Notas" value={spliceForm.notes} onChange={(event) => setSpliceForm({ ...spliceForm, notes: event.target.value })} />
+
+                <button type="submit" className="w-full rounded-xl bg-purple-600 px-4 py-3 font-bold text-white">
+                  Guardar fusión
+                </button>
+              </form>
+            </Panel>
+
+            <Panel title="Fusiones documentadas">
+              {splices.map((splice) => (
+                <div key={splice.id} className="mb-2 rounded-xl bg-purple-50 p-3 text-sm">
+                  <b>{allCables.find((cable) => cable.id === splice.cable_in)?.name || splice.cable_in}</b>
                   <br />
-                  {CABLE_TYPES[cable.type]?.label || cable.type} · {cable.fibers}F
+                  {splice.fiber_in} → {splice.fiber_out}
                   <br />
-                  Pérdida cable: {cable.loss_db} dB
+                  <b>{allCables.find((cable) => cable.id === splice.cable_out)?.name || splice.cable_out}</b>
+                  <br />
+                  Pérdida: {splice.loss_db} dB
+                  {splice.notes ? <><br />Notas: {splice.notes}</> : null}
+                  <br />
+                  <button type="button" onClick={() => deleteSplice(splice.id)} className="mt-2 rounded bg-red-600 px-3 py-1 text-xs font-bold text-white">
+                    Eliminar
+                  </button>
                 </div>
               ))}
 
-              {!cables.length && <p className="text-sm text-slate-500">Sin cables conectados.</p>}
+              {!splices.length && <p className="text-sm text-slate-500">Sin fusiones cargadas.</p>}
             </Panel>
 
             <Panel title="Puertos">
@@ -818,42 +942,6 @@ function InternalSplitter({ title, ports }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function getSplitterLoss(splitter) {
-  const losses = {
-    "1:2": 3.6,
-    "1:4": 7.2,
-    "1:8": 10.5,
-    "1:16": 13.8,
-    "1:32": 17.1,
-    "1:64": 20.5,
-  };
-
-  return losses[splitter] || null;
-}
-
-const FIBER_COLORS = [
-  "#008000",
-  "#ffff00",
-  "#ffffff",
-  "#0000ff",
-  "#ff0000",
-  "#ff66ff",
-  "#8b3f3f",
-  "#ffb6c1",
-  "#111111",
-  "#888888",
-  "#ffa500",
-  "#00d5ff",
-];
-
-function IconTool({ children }) {
-  return (
-    <button type="button" className="rounded bg-[#0d99bd] px-3 py-2 font-bold text-white">
-      {children}
-    </button>
   );
 }
 
@@ -1046,6 +1134,14 @@ function SmallButton({ children, onClick, danger }) {
   );
 }
 
+function IconTool({ children }) {
+  return (
+    <button type="button" className="rounded bg-[#0d99bd] px-3 py-2 font-bold text-white">
+      {children}
+    </button>
+  );
+}
+
 function Input(props) {
   return (
     <input
@@ -1076,6 +1172,19 @@ function Info({ label, value }) {
 function getSplitterPorts(splitter) {
   const match = String(splitter || "").match(/1:(\d+)/);
   return match ? Number(match[1]) : 0;
+}
+
+function getSplitterLoss(splitter) {
+  const losses = {
+    "1:2": 3.6,
+    "1:4": 7.2,
+    "1:8": 10.5,
+    "1:16": 13.8,
+    "1:32": 17.1,
+    "1:64": 20.5,
+  };
+
+  return losses[splitter] || null;
 }
 
 function emptyNodeForm() {
