@@ -93,6 +93,7 @@ function FTTHManager() {
   const [cables, setCables] = useState(INITIAL_CABLES);
   const [selectedNodeId, setSelectedNodeId] = useState("nap-01");
   const [selectedCableId, setSelectedCableId] = useState("");
+  const [insideNodeId, setInsideNodeId] = useState("");
   const [dragNodeId, setDragNodeId] = useState("");
   const [showNodeForm, setShowNodeForm] = useState(false);
   const [showCableForm, setShowCableForm] = useState(false);
@@ -115,6 +116,7 @@ function FTTHManager() {
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
   const selectedCable = cables.find((cable) => cable.id === selectedCableId);
+  const insideNode = nodes.find((node) => node.id === insideNodeId);
 
   const stats = useMemo(() => {
     const totalPorts = nodes.reduce((sum, node) => sum + Number(node.ports_total || 0), 0);
@@ -514,7 +516,7 @@ function FTTHManager() {
               <Info label="Posición" value={`X ${selectedNode.x} / Y ${selectedNode.y}`} />
 
               <div className="grid grid-cols-2 gap-2">
-                <SmallButton onClick={() => alert("Interior de caja lo agregamos en el próximo paso.")}>
+                <SmallButton onClick={() => setInsideNodeId(selectedNode.id)}>
                   Ver interior
                 </SmallButton>
                 <SmallButton danger onClick={deleteSelectedNode}>
@@ -580,7 +582,278 @@ function FTTHManager() {
           )}
         </Panel>
       </div>
+
+      {insideNode && (
+        <InsideBoxModal
+          node={insideNode}
+          cables={cables.filter((cable) => cable.from === insideNode.id || cable.to === insideNode.id)}
+          close={() => setInsideNodeId("")}
+        />
+      )}
     </div>
+  );
+}
+
+function InsideBoxModal({ node, cables, close }) {
+  const portsTotal = Math.min(Number(node.ports_total || getSplitterPorts(node.splitter || "1:8") || 8), 16);
+  const portsUsed = Number(node.ports_used || 0);
+  const ports = Array.from({ length: portsTotal }, (_, index) => ({
+    port: String(index + 1).padStart(2, "0"),
+    used: index < portsUsed,
+    color: FIBER_COLORS[index % FIBER_COLORS.length],
+    power: index < portsUsed ? (-19.2 - index * 0.32).toFixed(2) : "",
+  }));
+
+  const splitterLoss = getSplitterLoss(node.splitter || "1:8");
+  const inputPower = Number(String(node.power_in || "").replace(",", "."));
+  const outputPower = Number.isFinite(inputPower) && splitterLoss
+    ? (inputPower - splitterLoss).toFixed(2)
+    : node.power_out || "-";
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-slate-950/60 p-3">
+      <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[#c9c9c9] shadow-2xl">
+        <div className="flex items-center justify-between bg-[#6a9f35] px-5 py-3 text-white">
+          <div>
+            <h2 className="font-bold">Punto de Acceso: {node.name}</h2>
+            <p className="text-xs text-white/80">
+              Interior básico de caja: splitter, puertos, fibras, cables conectados y pérdidas.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={close}
+            className="rounded bg-red-500 px-3 py-1 font-bold text-white"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 px-5 py-4">
+          <div className="flex flex-wrap gap-2">
+            <IconTool>◀</IconTool>
+            <IconTool>✕</IconTool>
+            <IconTool>🖨</IconTool>
+            <IconTool>🖼</IconTool>
+            <IconTool>↶</IconTool>
+            <IconTool>✂</IconTool>
+          </div>
+
+          <div className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-700">
+            Splitter {node.splitter || "-"} · {portsUsed}/{portsTotal} puertos
+          </div>
+        </div>
+
+        <div className="grid flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[1fr_360px]">
+          <div className="overflow-auto bg-[#c7c7c7] p-8">
+            <div className="relative min-h-[720px] min-w-[1180px]">
+              <svg className="absolute left-0 top-0 h-[720px] w-[1180px] overflow-visible">
+                <path d="M 95 360 C 160 430 230 490 286 548" stroke="#8b8b8b" strokeWidth="6" fill="none" strokeLinecap="round" />
+                <path d="M 285 548 C 270 465 225 405 155 350" stroke="#087a0a" strokeWidth="6" fill="none" strokeLinecap="round" />
+                <path d="M 170 105 L 315 55" stroke="#6b7280" strokeWidth="2" fill="none" />
+                <path d="M 170 105 L 315 235" stroke="#6b7280" strokeWidth="2" fill="none" />
+                <path d="M 805 170 L 925 65" stroke="#6b7280" strokeWidth="2" fill="none" />
+                <path d="M 805 170 L 925 290" stroke="#6b7280" strokeWidth="2" fill="none" />
+
+                {ports.slice(0, 12).map((port, index) => {
+                  const y1 = 375 + index * 28;
+                  const y2 = 345 + index * 28;
+                  const midX = 585;
+                  const midY = (y1 + y2) / 2;
+
+                  return (
+                    <g key={port.port}>
+                      <path
+                        d={`M 292 ${y1} C 455 ${y1 - 10}, 680 ${y2 + 10}, 887 ${y2}`}
+                        stroke={port.color}
+                        strokeWidth="5"
+                        fill="none"
+                        strokeLinecap="round"
+                      />
+                      <circle cx={midX} cy={midY} r="9" fill="#f8fafc" stroke="#64748b" strokeWidth="1.5" />
+                      <text x={midX - 4} y={midY + 4} className="fill-slate-600 text-[11px]">✂</text>
+                    </g>
+                  );
+                })}
+
+                <path d="M 292 345 C 450 255 655 245 895 315" stroke="#087a0a" strokeWidth="5" fill="none" strokeLinecap="round" />
+                <path d="M 292 320 C 470 285 690 275 915 300" stroke="#7a7a7a" strokeWidth="5" fill="none" strokeLinecap="round" />
+              </svg>
+
+              <div className="absolute left-[95px] top-[310px]">
+                <Tube title="Entrada" side="right" ports={ports.slice(0, 12)} />
+              </div>
+
+              <div className="absolute left-[860px] top-[310px]">
+                <Tube title="Salida" side="left" ports={ports.slice(0, 12)} />
+              </div>
+
+              <div className="absolute left-[760px] top-[70px]">
+                <InternalSplitter title={`${node.name}_spl`} ports={ports.slice(0, 8)} />
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto border-l border-slate-300 bg-white p-4">
+            <Panel title="Datos ópticos">
+              <Info label="Tipo" value={NODE_TYPES[node.type]?.label || node.type} />
+              <Info label="Splitter" value={node.splitter || "-"} />
+              <Info label="Pérdida splitter" value={`${splitterLoss || "-"} dB`} />
+              <Info label="Potencia IN" value={`${node.power_in || "-"} dBm`} />
+              <Info label="Potencia OUT estimada" value={`${outputPower} dBm`} />
+              <Info label="Puertos" value={`${portsUsed}/${portsTotal}`} />
+            </Panel>
+
+            <Panel title="Cables conectados">
+              {cables.map((cable) => (
+                <div key={cable.id} className="mb-2 rounded-xl bg-slate-50 p-3 text-sm">
+                  <b>{cable.name}</b>
+                  <br />
+                  {CABLE_TYPES[cable.type]?.label || cable.type} · {cable.fibers}F
+                  <br />
+                  Pérdida cable: {cable.loss_db} dB
+                </div>
+              ))}
+
+              {!cables.length && <p className="text-sm text-slate-500">Sin cables conectados.</p>}
+            </Panel>
+
+            <Panel title="Puertos">
+              <div className="grid grid-cols-4 gap-2">
+                {ports.map((port) => (
+                  <div
+                    key={port.port}
+                    className={`rounded-lg border p-2 text-center text-xs font-bold ${
+                      port.used ? "border-green-300 bg-green-50 text-green-700" : "border-slate-200 bg-slate-50 text-slate-500"
+                    }`}
+                  >
+                    P{port.port}
+                    <br />
+                    {port.used ? `${port.power} dBm` : "Libre"}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Tube({ title, side, ports }) {
+  return (
+    <div className="relative h-[385px] w-[260px]">
+      <div className="absolute left-[55px] top-0 z-10 flex w-[155px] items-center justify-between bg-[#3d3d3d] px-2 py-1 text-white">
+        <span className="font-bold">{title}</span>
+        <div className="flex gap-1 text-xs">
+          <span>⇆</span><span>✥</span><span>↥</span><span className="text-red-500">🗑</span>
+        </div>
+      </div>
+
+      <div
+        className={`absolute top-[28px] h-[355px] w-[230px] bg-[#68b7ce] shadow-md ${
+          side === "right" ? "left-0 rounded-l-[72px]" : "right-0 rounded-r-[72px]"
+        }`}
+        style={{
+          borderLeft: side === "right" ? "22px solid #0f172a" : undefined,
+          borderRight: side === "left" ? "22px solid #0f172a" : undefined,
+        }}
+      >
+        <div className={`absolute top-[18px] flex flex-col gap-[8px] ${side === "right" ? "right-[-17px]" : "left-[-17px]"}`}>
+          {ports.map((item, index) => (
+            <span key={item.port} className="rounded-md bg-slate-600 px-2 text-sm font-bold text-white">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+          ))}
+        </div>
+
+        <div className={`absolute top-[25px] flex flex-col gap-[9px] ${side === "right" ? "left-[104px]" : "right-[104px]"}`}>
+          {ports.map((item) => (
+            <div key={item.port} className="flex items-center gap-2">
+              <span className="rounded bg-sky-600 px-2 py-0.5 text-xs font-bold text-white">{item.used ? "P" : "F"}</span>
+              <span className="h-[18px] w-[15px] border border-slate-700 bg-white"></span>
+              <span className="h-[4px] w-[4px] rounded-full bg-sky-700"></span>
+            </div>
+          ))}
+        </div>
+
+        <div className={`absolute top-[28px] rounded bg-sky-600 px-2 py-1 text-xs font-bold text-white ${side === "right" ? "left-[24px]" : "right-[24px]"}`}>
+          0.01dB
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InternalSplitter({ title, ports }) {
+  return (
+    <div className="relative w-[230px]">
+      <div className="flex items-center justify-between bg-[#3d3d3d] px-2 py-1 text-white">
+        <span className="font-bold">{title}</span>
+        <div className="flex gap-1 text-xs">
+          <span>✎</span><span>⇆</span><span>✥</span><span>↥</span><span className="text-red-500">🗑</span>
+        </div>
+      </div>
+
+      <div className="relative h-[285px] bg-slate-100 shadow" style={{ clipPath: "polygon(0 48%, 68% 0, 100% 0, 100% 100%, 68% 100%, 0 52%)" }}>
+        <div className="absolute left-5 top-1/2 -translate-y-1/2 rounded bg-green-500 px-2 py-1 text-sm font-bold text-white">IN</div>
+
+        <div className="absolute left-[82px] top-[40px] flex flex-col gap-[7px]">
+          {ports.map((item) => <span key={item.port} className="h-[18px] w-[15px] border border-slate-700 bg-white"></span>)}
+        </div>
+
+        <div className="absolute left-[118px] top-[42px] flex flex-col gap-[9px]">
+          {ports.map((item) => <span key={item.port} className="h-[4px] w-[4px] rounded-full bg-sky-500"></span>)}
+        </div>
+
+        <div className="absolute right-[-20px] top-[34px] flex flex-col gap-[8px]">
+          {ports.map((item) => (
+            <div key={item.port} className="flex items-center">
+              <span className="rounded-md bg-sky-600 px-2 text-sm font-bold text-white">{item.port}</span>
+              <div className="h-[5px] w-[36px] rounded bg-slate-500"></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getSplitterLoss(splitter) {
+  const losses = {
+    "1:2": 3.6,
+    "1:4": 7.2,
+    "1:8": 10.5,
+    "1:16": 13.8,
+    "1:32": 17.1,
+    "1:64": 20.5,
+  };
+
+  return losses[splitter] || null;
+}
+
+const FIBER_COLORS = [
+  "#008000",
+  "#ffff00",
+  "#ffffff",
+  "#0000ff",
+  "#ff0000",
+  "#ff66ff",
+  "#8b3f3f",
+  "#ffb6c1",
+  "#111111",
+  "#888888",
+  "#ffa500",
+  "#00d5ff",
+];
+
+function IconTool({ children }) {
+  return (
+    <button type="button" className="rounded bg-[#0d99bd] px-3 py-2 font-bold text-white">
+      {children}
+    </button>
   );
 }
 
