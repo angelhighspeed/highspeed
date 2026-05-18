@@ -466,6 +466,13 @@ function FTTHManager() {
     saveNetwork(nodes, cables, splices, nextPortConnections);
   };
 
+  const updateNodeFromModal = (updatedNode) => {
+    const nextNodes = nodes.map((node) => (node.id === updatedNode.id ? updatedNode : node));
+
+    setNodes(nextNodes);
+    saveNetwork(nextNodes, cables, splices, portConnections);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -680,6 +687,7 @@ function FTTHManager() {
           allPortConnections={portConnections}
           savePortConnections={savePortConnectionsFromModal}
           saveSplices={saveSplicesFromModal}
+          updateNode={updateNodeFromModal}
           close={() => setInsideNodeId("")}
         />
       )}
@@ -697,6 +705,7 @@ function InsideBoxModal({
   allPortConnections,
   savePortConnections,
   saveSplices,
+  updateNode,
   close,
 }) {
   const portsTotal = Math.min(Number(node.ports_total || getSplitterPorts(node.splitter || "1:8") || 8), 16);
@@ -717,19 +726,29 @@ function InsideBoxModal({
     loss_db: "0.01",
     notes: "",
   });
+  const [splitterForm, setSplitterForm] = useState({
+    splitter: node.splitter || "1:8",
+    ports_total: Number(node.ports_total || getSplitterPorts(node.splitter || "1:8") || 8),
+    ports_used: Number(node.ports_used || 0),
+    power_in: node.power_in || "",
+    power_out: node.power_out || "",
+  });
 
-  const ports = Array.from({ length: portsTotal }, (_, index) => ({
+  const currentPortsTotal = Math.min(Number(splitterForm.ports_total || getSplitterPorts(splitterForm.splitter) || 8), 64);
+  const currentPortsUsed = Math.min(Number(splitterForm.ports_used || 0), currentPortsTotal);
+
+  const ports = Array.from({ length: currentPortsTotal }, (_, index) => ({
     port: String(index + 1).padStart(2, "0"),
-    used: index < portsUsed,
+    used: index < currentPortsUsed,
     color: FIBER_COLORS[index % FIBER_COLORS.length],
-    power: index < portsUsed ? (-19.2 - index * 0.32).toFixed(2) : "",
+    power: index < currentPortsUsed ? (-19.2 - index * 0.32).toFixed(2) : "",
   }));
 
-  const splitterLoss = getSplitterLoss(node.splitter || "1:8");
-  const inputPower = Number(String(node.power_in || "").replace(",", "."));
+  const splitterLoss = getSplitterLoss(splitterForm.splitter || "1:8");
+  const inputPower = Number(String(splitterForm.power_in || "").replace(",", "."));
   const outputPower = Number.isFinite(inputPower) && splitterLoss
     ? (inputPower - splitterLoss).toFixed(2)
-    : node.power_out || "-";
+    : splitterForm.power_out || "-";
 
   const addSplice = (event) => {
     event.preventDefault();
@@ -760,6 +779,34 @@ function InsideBoxModal({
       loss_db: "0.04",
       notes: "",
     });
+  };
+
+  const saveSplitterConfig = (event) => {
+    event.preventDefault();
+
+    const nextPortsTotal = Number(splitterForm.ports_total || getSplitterPorts(splitterForm.splitter) || 0);
+    const nextPortsUsed = Math.min(Number(splitterForm.ports_used || 0), nextPortsTotal);
+
+    if (!splitterForm.splitter) {
+      alert("Seleccioná un splitter.");
+      return;
+    }
+
+    if (nextPortsTotal <= 0) {
+      alert("La cantidad de puertos debe ser mayor a cero.");
+      return;
+    }
+
+    updateNode({
+      ...node,
+      splitter: splitterForm.splitter,
+      ports_total: nextPortsTotal,
+      ports_used: nextPortsUsed,
+      power_in: splitterForm.power_in,
+      power_out: splitterForm.power_out,
+    });
+
+    alert("Splitter y puertos actualizados.");
   };
 
   const addPortConnection = (event) => {
@@ -835,7 +882,7 @@ function InsideBoxModal({
           </div>
 
           <div className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-700">
-            Splitter {node.splitter || "-"} · {portsUsed}/{portsTotal} puertos
+            Splitter {splitterForm.splitter || "-"} · {currentPortsUsed}/{currentPortsTotal} puertos
           </div>
         </div>
 
@@ -912,13 +959,70 @@ function InsideBoxModal({
           </div>
 
           <div className="overflow-y-auto border-l border-slate-300 bg-white p-4">
-            <Panel title="Datos ópticos">
-              <Info label="Tipo" value={NODE_TYPES[node.type]?.label || node.type} />
-              <Info label="Splitter" value={node.splitter || "-"} />
-              <Info label="Pérdida splitter" value={`${splitterLoss || "-"} dB`} />
-              <Info label="Potencia IN" value={`${node.power_in || "-"} dBm`} />
-              <Info label="Potencia OUT estimada" value={`${outputPower} dBm`} />
-              <Info label="Puertos" value={`${portsUsed}/${portsTotal}`} />
+            <Panel title="Editar splitter y puertos">
+              <form onSubmit={saveSplitterConfig} className="space-y-3">
+                <Select
+                  value={splitterForm.splitter}
+                  onChange={(event) => {
+                    const splitter = event.target.value;
+                    setSplitterForm({
+                      ...splitterForm,
+                      splitter,
+                      ports_total: getSplitterPorts(splitter),
+                      ports_used: Math.min(Number(splitterForm.ports_used || 0), getSplitterPorts(splitter)),
+                    });
+                  }}
+                >
+                  <option value="1:2">Splitter 1:2</option>
+                  <option value="1:4">Splitter 1:4</option>
+                  <option value="1:8">Splitter 1:8</option>
+                  <option value="1:16">Splitter 1:16</option>
+                  <option value="1:32">Splitter 1:32</option>
+                  <option value="1:64">Splitter 1:64</option>
+                </Select>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="number"
+                    min="1"
+                    placeholder="Puertos total"
+                    value={splitterForm.ports_total}
+                    onChange={(event) => setSplitterForm({ ...splitterForm, ports_total: event.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="Puertos usados"
+                    value={splitterForm.ports_used}
+                    onChange={(event) => setSplitterForm({ ...splitterForm, ports_used: event.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Potencia IN"
+                    value={splitterForm.power_in}
+                    onChange={(event) => setSplitterForm({ ...splitterForm, power_in: event.target.value })}
+                  />
+                  <Input
+                    placeholder="Potencia OUT"
+                    value={splitterForm.power_out}
+                    onChange={(event) => setSplitterForm({ ...splitterForm, power_out: event.target.value })}
+                  />
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+                  Pérdida splitter: <b>{splitterLoss || "-"} dB</b>
+                  <br />
+                  Salida estimada: <b>{outputPower} dBm</b>
+                  <br />
+                  Puertos libres: <b>{Math.max(currentPortsTotal - currentPortsUsed, 0)}</b>
+                </div>
+
+                <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">
+                  Guardar splitter
+                </button>
+              </form>
             </Panel>
 
             <Panel title="Unir fibra entre puertos">
