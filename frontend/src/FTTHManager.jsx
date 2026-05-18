@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const STORAGE_KEY = "highspeed_ftth_v2";
 
 const NODE_TYPES = {
   olt: { label: "OLT / Rack", icon: "🏢", color: "#2563eb" },
@@ -8,48 +10,375 @@ const NODE_TYPES = {
   client: { label: "Cliente", icon: "🏠", color: "#0ea5e9" },
 };
 
+const CABLE_TYPES = {
+  trunk: { label: "Troncal", color: "#2563eb", width: 7 },
+  distribution: { label: "Distribución", color: "#16a34a", width: 6 },
+  drop: { label: "Drop", color: "#f59e0b", width: 4 },
+  reserve: { label: "Reserva", color: "#94a3b8", width: 4, dash: "10 8" },
+};
+
+const INITIAL_NODES = [
+  {
+    id: "olt-01",
+    type: "olt",
+    name: "OLT Central",
+    x: 140,
+    y: 220,
+    splitter: "",
+    ports_total: 16,
+    ports_used: 8,
+    power_in: "+3.2",
+    power_out: "+3.2",
+    address: "Central",
+    status: "active",
+  },
+  {
+    id: "nap-01",
+    type: "nap",
+    name: "NAP-01",
+    x: 450,
+    y: 330,
+    splitter: "1:8",
+    ports_total: 8,
+    ports_used: 5,
+    power_in: "-18.2",
+    power_out: "-19.8",
+    address: "Sector norte",
+    status: "active",
+  },
+  {
+    id: "nap-02",
+    type: "nap",
+    name: "NAP-02",
+    x: 760,
+    y: 230,
+    splitter: "1:16",
+    ports_total: 16,
+    ports_used: 9,
+    power_in: "-20.1",
+    power_out: "-21.7",
+    address: "Sector este",
+    status: "active",
+  },
+];
+
+const INITIAL_CABLES = [
+  {
+    id: "cable-01",
+    name: "Troncal 48F",
+    type: "trunk",
+    from: "olt-01",
+    to: "nap-01",
+    fibers: 48,
+    distance_m: 620,
+    loss_db: 2.8,
+    status: "active",
+  },
+  {
+    id: "cable-02",
+    name: "Distribución 24F",
+    type: "distribution",
+    from: "nap-01",
+    to: "nap-02",
+    fibers: 24,
+    distance_m: 480,
+    loss_db: 4.3,
+    status: "active",
+  },
+];
+
 function FTTHManager() {
-  const [selected, setSelected] = useState("nap-01");
+  const mapRef = useRef(null);
+  const [nodes, setNodes] = useState(INITIAL_NODES);
+  const [cables, setCables] = useState(INITIAL_CABLES);
+  const [selectedNodeId, setSelectedNodeId] = useState("nap-01");
+  const [selectedCableId, setSelectedCableId] = useState("");
+  const [dragNodeId, setDragNodeId] = useState("");
+  const [showNodeForm, setShowNodeForm] = useState(false);
+  const [showCableForm, setShowCableForm] = useState(false);
+  const [nodeForm, setNodeForm] = useState(emptyNodeForm());
+  const [cableForm, setCableForm] = useState(emptyCableForm());
 
-  const nodes = [
-    {
-      id: "olt-01",
-      type: "olt",
-      name: "OLT Central",
-      splitter: "-",
-      ports: "8/16",
-      powerIn: "+3.2 dBm",
-      powerOut: "+3.2 dBm",
-      status: "Activo",
-    },
-    {
-      id: "nap-01",
-      type: "nap",
-      name: "NAP-01",
-      splitter: "1:8",
-      ports: "5/8",
-      powerIn: "-18.2 dBm",
-      powerOut: "-19.8 dBm",
-      status: "Activo",
-    },
-    {
-      id: "nap-02",
-      type: "nap",
-      name: "NAP-02",
-      splitter: "1:16",
-      ports: "9/16",
-      powerIn: "-20.1 dBm",
-      powerOut: "-21.7 dBm",
-      status: "Activo",
-    },
-  ];
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
 
-  const cables = [
-    { id: "cable-01", name: "Troncal 48F", from: "OLT Central", to: "NAP-01", type: "Troncal", loss: "2.8 dB" },
-    { id: "cable-02", name: "Distribución 24F", from: "NAP-01", to: "NAP-02", type: "Distribución", loss: "4.3 dB" },
-  ];
+    try {
+      const data = JSON.parse(saved);
+      if (Array.isArray(data.nodes)) setNodes(data.nodes);
+      if (Array.isArray(data.cables)) setCables(data.cables);
+      if (data.nodes?.[0]?.id) setSelectedNodeId(data.nodes[0].id);
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
 
-  const selectedNode = nodes.find((node) => node.id === selected) || nodes[0];
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+  const selectedCable = cables.find((cable) => cable.id === selectedCableId);
+
+  const stats = useMemo(() => {
+    const totalPorts = nodes.reduce((sum, node) => sum + Number(node.ports_total || 0), 0);
+    const usedPorts = nodes.reduce((sum, node) => sum + Number(node.ports_used || 0), 0);
+    const meters = cables.reduce((sum, cable) => sum + Number(cable.distance_m || 0), 0);
+
+    return {
+      points: nodes.length,
+      cables: cables.length,
+      naps: nodes.filter((node) => node.type === "nap").length,
+      clients: nodes.filter((node) => node.type === "client").length,
+      freePorts: Math.max(totalPorts - usedPorts, 0),
+      km: (meters / 1000).toFixed(2),
+    };
+  }, [nodes, cables]);
+
+  const saveNetwork = (nextNodes = nodes, nextCables = cables) => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        nodes: nextNodes,
+        cables: nextCables,
+        updated_at: new Date().toISOString(),
+      })
+    );
+  };
+
+  const nodeById = (id) => nodes.find((node) => node.id === id);
+
+  const handleMouseMove = (event) => {
+    if (!dragNodeId || !mapRef.current) return;
+
+    const rect = mapRef.current.getBoundingClientRect();
+    const x = Math.round(event.clientX - rect.left);
+    const y = Math.round(event.clientY - rect.top);
+
+    setNodes((prev) =>
+      prev.map((node) =>
+        node.id === dragNodeId
+          ? {
+              ...node,
+              x: Math.max(40, Math.min(rect.width - 40, x)),
+              y: Math.max(40, Math.min(rect.height - 40, y)),
+            }
+          : node
+      )
+    );
+  };
+
+  const stopDrag = () => {
+    if (!dragNodeId) return;
+    setDragNodeId("");
+    setTimeout(() => saveNetwork(), 0);
+  };
+
+  const resetDemo = () => {
+    if (!window.confirm("¿Restaurar la red demo? Se reemplaza lo guardado localmente.")) return;
+    setNodes(INITIAL_NODES);
+    setCables(INITIAL_CABLES);
+    setSelectedNodeId("nap-01");
+    setSelectedCableId("");
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        nodes: INITIAL_NODES,
+        cables: INITIAL_CABLES,
+        updated_at: new Date().toISOString(),
+      })
+    );
+  };
+
+  const startCreateNode = () => {
+    const centerX = mapRef.current?.clientWidth ? Math.round(mapRef.current.clientWidth / 2) : 500;
+    const centerY = mapRef.current?.clientHeight ? Math.round(mapRef.current.clientHeight / 2) : 300;
+
+    setNodeForm({
+      ...emptyNodeForm(),
+      x: centerX,
+      y: centerY,
+    });
+    setShowNodeForm(true);
+    setShowCableForm(false);
+  };
+
+  const createNode = (event) => {
+    event.preventDefault();
+
+    if (!nodeForm.name.trim()) {
+      alert("Ingresá el nombre del punto.");
+      return;
+    }
+
+    const splitter = nodeForm.splitter || "";
+    const portsTotal = Number(nodeForm.ports_total || getSplitterPorts(splitter) || 0);
+
+    const nextNode = {
+      ...nodeForm,
+      id: `${nodeForm.type}-${Date.now()}`,
+      x: Number(nodeForm.x || 500),
+      y: Number(nodeForm.y || 300),
+      ports_total: portsTotal,
+      ports_used: Number(nodeForm.ports_used || 0),
+    };
+
+    const nextNodes = [...nodes, nextNode];
+
+    setNodes(nextNodes);
+    setSelectedNodeId(nextNode.id);
+    setSelectedCableId("");
+    setShowNodeForm(false);
+    setNodeForm(emptyNodeForm());
+    saveNetwork(nextNodes, cables);
+  };
+
+  const deleteSelectedNode = () => {
+    if (!selectedNode) return;
+    if (!window.confirm(`¿Eliminar ${selectedNode.name}? También se eliminan sus cables.`)) return;
+
+    const nextNodes = nodes.filter((node) => node.id !== selectedNode.id);
+    const nextCables = cables.filter((cable) => cable.from !== selectedNode.id && cable.to !== selectedNode.id);
+
+    setNodes(nextNodes);
+    setCables(nextCables);
+    setSelectedNodeId(nextNodes[0]?.id || "");
+    setSelectedCableId("");
+    saveNetwork(nextNodes, nextCables);
+  };
+
+  const startCreateCable = () => {
+    setCableForm({
+      ...emptyCableForm(),
+      from: nodes[0]?.id || "",
+      to: nodes[1]?.id || "",
+    });
+    setShowCableForm(true);
+    setShowNodeForm(false);
+  };
+
+  const createCable = (event) => {
+    event.preventDefault();
+
+    if (!cableForm.name.trim()) {
+      alert("Ingresá el nombre del cable.");
+      return;
+    }
+
+    if (!cableForm.from || !cableForm.to) {
+      alert("Seleccioná origen y destino.");
+      return;
+    }
+
+    if (cableForm.from === cableForm.to) {
+      alert("Origen y destino no pueden ser iguales.");
+      return;
+    }
+
+    const nextCable = {
+      ...cableForm,
+      id: `cable-${Date.now()}`,
+      fibers: Number(cableForm.fibers || 0),
+      distance_m: Number(cableForm.distance_m || 0),
+      loss_db: Number(cableForm.loss_db || 0),
+      status: "active",
+    };
+
+    const nextCables = [...cables, nextCable];
+
+    setCables(nextCables);
+    setSelectedCableId(nextCable.id);
+    setSelectedNodeId("");
+    setShowCableForm(false);
+    setCableForm(emptyCableForm());
+    saveNetwork(nodes, nextCables);
+  };
+
+  const deleteSelectedCable = () => {
+    if (!selectedCable) return;
+    if (!window.confirm(`¿Eliminar cable ${selectedCable.name}?`)) return;
+
+    const nextCables = cables.filter((cable) => cable.id !== selectedCable.id);
+
+    setCables(nextCables);
+    setSelectedCableId("");
+    saveNetwork(nodes, nextCables);
+  };
+
+  const toggleCableCut = () => {
+    if (!selectedCable) return;
+
+    const nextCables = cables.map((cable) =>
+      cable.id === selectedCable.id
+        ? {
+            ...cable,
+            status: cable.status === "cut" ? "active" : "cut",
+          }
+        : cable
+    );
+
+    setCables(nextCables);
+    saveNetwork(nodes, nextCables);
+  };
+
+  const addSplitterOnCable = () => {
+    if (!selectedCable) {
+      alert("Seleccioná un cable primero.");
+      return;
+    }
+
+    const fromNode = nodeById(selectedCable.from);
+    const toNode = nodeById(selectedCable.to);
+
+    if (!fromNode || !toNode) return;
+
+    const splitterName = window.prompt("Nombre del nuevo splitter:", `SPL-${Date.now().toString().slice(-4)}`);
+    if (!splitterName) return;
+
+    const splitter = window.prompt("Tipo de splitter: 1:2, 1:4, 1:8, 1:16, 1:32", "1:8") || "1:8";
+    const portsTotal = getSplitterPorts(splitter);
+
+    const newNode = {
+      id: `splitter-${Date.now()}`,
+      type: "splitter",
+      name: splitterName,
+      x: Math.round((Number(fromNode.x) + Number(toNode.x)) / 2),
+      y: Math.round((Number(fromNode.y) + Number(toNode.y)) / 2),
+      splitter,
+      ports_total: portsTotal,
+      ports_used: 0,
+      power_in: "",
+      power_out: "",
+      address: `Sobre ${selectedCable.name}`,
+      status: "active",
+    };
+
+    const distanceHalf = Math.round(Number(selectedCable.distance_m || 0) / 2);
+    const lossHalf = Number((Number(selectedCable.loss_db || 0) / 2).toFixed(2));
+
+    const cableA = {
+      ...selectedCable,
+      id: `${selectedCable.id}-a-${Date.now()}`,
+      name: `${selectedCable.name} A`,
+      to: newNode.id,
+      distance_m: distanceHalf,
+      loss_db: lossHalf,
+    };
+
+    const cableB = {
+      ...selectedCable,
+      id: `${selectedCable.id}-b-${Date.now()}`,
+      name: `${selectedCable.name} B`,
+      from: newNode.id,
+      distance_m: distanceHalf,
+      loss_db: lossHalf,
+    };
+
+    const nextNodes = [...nodes, newNode];
+    const nextCables = cables.filter((cable) => cable.id !== selectedCable.id).concat([cableA, cableB]);
+
+    setNodes(nextNodes);
+    setCables(nextCables);
+    setSelectedNodeId(newNode.id);
+    setSelectedCableId("");
+    saveNetwork(nextNodes, nextCables);
+  };
 
   return (
     <div className="space-y-6">
@@ -57,132 +386,216 @@ function FTTHManager() {
         <div>
           <h1 className="text-4xl font-bold text-slate-950">Red FTTH</h1>
           <p className="mt-2 text-slate-500">
-            Módulo base estable para volver a construir mapa, cajas NAP, cables, splitters, fusiones y pérdidas.
+            Mapa editable base: NAPs movibles, cables, splitters sobre cable y guardado local.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Nuevo punto</button>
-          <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700">Nuevo cable</button>
-          <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700">Guardar</button>
+          <TopButton onClick={startCreateNode}>+ Punto</TopButton>
+          <TopButton onClick={startCreateCable}>+ Cable</TopButton>
+          <TopButton onClick={() => saveNetwork()}>Guardar</TopButton>
+          <TopButton onClick={resetDemo}>Reset demo</TopButton>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Stat title="Puntos" value={nodes.length} />
-        <Stat title="Cables" value={cables.length} />
-        <Stat title="NAPs" value={nodes.filter((node) => node.type === "nap").length} />
-        <Stat title="Puertos usados" value="14/40" />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+        <Stat title="Puntos" value={stats.points} />
+        <Stat title="Cables" value={stats.cables} />
+        <Stat title="NAPs" value={stats.naps} />
+        <Stat title="Clientes" value={stats.clients} />
+        <Stat title="Puertos libres" value={stats.freePorts} />
+        <Stat title="Cable" value={`${stats.km} km`} />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[280px_1fr_340px]">
         <Panel title="Herramientas">
           <div className="grid grid-cols-2 gap-2">
-            <Tool>📦 NAP</Tool>
-            <Tool>🏢 OLT</Tool>
-            <Tool>🔀 Splitter</Tool>
-            <Tool>🧬 Mufa</Tool>
-            <Tool>🧵 Cable</Tool>
-            <Tool>🏠 Cliente</Tool>
-            <Tool>✂️ Corte</Tool>
-            <Tool>📟 OTDR</Tool>
+            <ToolButton onClick={startCreateNode}>📦 NAP</ToolButton>
+            <ToolButton onClick={startCreateNode}>🏢 OLT</ToolButton>
+            <ToolButton onClick={startCreateNode}>🔀 Splitter</ToolButton>
+            <ToolButton onClick={startCreateNode}>🧬 Mufa</ToolButton>
+            <ToolButton onClick={startCreateCable}>🧵 Cable</ToolButton>
+            <ToolButton onClick={addSplitterOnCable}>➕ Splitter en cable</ToolButton>
+            <ToolButton onClick={toggleCableCut}>✂️ Cortar/reparar</ToolButton>
+            <ToolButton onClick={() => alert("OTDR lo agregamos en el próximo paso.")}>📟 OTDR</ToolButton>
           </div>
 
           <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Esta es la base estable. Si esto abre bien, después agregamos el mapa editable y el interior de las cajas.
+            Arrastrá las NAPs/cajas dentro del mapa. Al soltar, tocá Guardar o se guarda automáticamente.
+          </div>
+
+          <div className="mt-5 space-y-2 text-sm">
+            {Object.entries(CABLE_TYPES).map(([key, cableType]) => (
+              <div key={key} className="flex items-center gap-3">
+                <span className="h-1.5 w-10 rounded" style={{ backgroundColor: cableType.color }}></span>
+                <span>{cableType.label}</span>
+              </div>
+            ))}
           </div>
         </Panel>
 
-        <Panel title="Mapa FTTH base">
-          <div className="relative h-[560px] overflow-hidden rounded-2xl border border-slate-200 bg-[#e6f6e9]">
+        <Panel title="Mapa FTTH editable">
+          <div
+            ref={mapRef}
+            className="relative h-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-[#e6f6e9]"
+            onMouseMove={handleMouseMove}
+            onMouseUp={stopDrag}
+            onMouseLeave={stopDrag}
+          >
+            <MapRoads />
+
             <svg className="absolute inset-0 h-full w-full">
-              <path d="M0 120 C220 90 430 140 900 100" stroke="#94a3b8" strokeWidth="28" fill="none" strokeLinecap="round" />
-              <path d="M0 120 C220 90 430 140 900 100" stroke="#e2e8f0" strokeWidth="18" fill="none" strokeLinecap="round" />
+              {cables.map((cable) => {
+                const from = nodeById(cable.from);
+                const to = nodeById(cable.to);
 
-              <line x1="150" y1="170" x2="430" y2="310" stroke="#2563eb" strokeWidth="7" strokeLinecap="round" />
-              <line x1="430" y1="310" x2="700" y2="230" stroke="#16a34a" strokeWidth="6" strokeLinecap="round" />
+                if (!from || !to) return null;
 
-              <text x="270" y="225" className="fill-slate-800 text-sm font-bold">Troncal 48F</text>
-              <text x="545" y="260" className="fill-slate-800 text-sm font-bold">Distribución 24F</text>
+                const type = CABLE_TYPES[cable.type] || CABLE_TYPES.distribution;
+                const selected = selectedCableId === cable.id;
+                const isCut = cable.status === "cut";
+
+                return (
+                  <g key={cable.id}>
+                    <line
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke={isCut ? "#ef4444" : selected ? "#111827" : type.color}
+                      strokeWidth={selected ? type.width + 3 : type.width}
+                      strokeDasharray={isCut ? "12 8" : type.dash || ""}
+                      strokeLinecap="round"
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        setSelectedCableId(cable.id);
+                        setSelectedNodeId("");
+                      }}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <text
+                      x={(Number(from.x) + Number(to.x)) / 2 + 8}
+                      y={(Number(from.y) + Number(to.y)) / 2 - 8}
+                      className="fill-slate-800 text-sm font-bold"
+                    >
+                      {cable.name}
+                    </text>
+                  </g>
+                );
+              })}
             </svg>
 
-            <MapNode node={nodes[0]} x={150} y={170} selected={selected === nodes[0].id} onClick={() => setSelected(nodes[0].id)} />
-            <MapNode node={nodes[1]} x={430} y={310} selected={selected === nodes[1].id} onClick={() => setSelected(nodes[1].id)} />
-            <MapNode node={nodes[2]} x={700} y={230} selected={selected === nodes[2].id} onClick={() => setSelected(nodes[2].id)} />
+            {nodes.map((node) => (
+              <MapNode
+                key={node.id}
+                node={node}
+                selected={selectedNodeId === node.id}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  setSelectedNodeId(node.id);
+                  setSelectedCableId("");
+                  setDragNodeId(node.id);
+                }}
+              />
+            ))}
           </div>
         </Panel>
 
         <Panel title="Inspector">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div
-                className="flex h-12 w-12 items-center justify-center rounded-xl text-2xl text-white"
-                style={{ backgroundColor: NODE_TYPES[selectedNode.type]?.color }}
-              >
-                {NODE_TYPES[selectedNode.type]?.icon}
+          {selectedNode && (
+            <div className="space-y-4">
+              <NodeHeader node={selectedNode} />
+              <Info label="Estado" value={selectedNode.status || "active"} />
+              <Info label="Dirección" value={selectedNode.address || "-"} />
+              <Info label="Splitter" value={selectedNode.splitter || "-"} />
+              <Info label="Puertos" value={`${selectedNode.ports_used || 0}/${selectedNode.ports_total || 0}`} />
+              <Info label="Potencia IN" value={`${selectedNode.power_in || "-"} dBm`} />
+              <Info label="Potencia OUT" value={`${selectedNode.power_out || "-"} dBm`} />
+              <Info label="Posición" value={`X ${selectedNode.x} / Y ${selectedNode.y}`} />
+
+              <div className="grid grid-cols-2 gap-2">
+                <SmallButton onClick={() => alert("Interior de caja lo agregamos en el próximo paso.")}>
+                  Ver interior
+                </SmallButton>
+                <SmallButton danger onClick={deleteSelectedNode}>
+                  Eliminar
+                </SmallButton>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-950">{selectedNode.name}</h2>
-                <p className="text-sm text-slate-500">{NODE_TYPES[selectedNode.type]?.label}</p>
+
+              <Section title="Cables conectados">
+                {cables
+                  .filter((cable) => cable.from === selectedNode.id || cable.to === selectedNode.id)
+                  .map((cable) => (
+                    <button
+                      key={cable.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCableId(cable.id);
+                        setSelectedNodeId("");
+                      }}
+                      className="mb-2 w-full rounded-lg bg-slate-50 p-3 text-left text-sm hover:bg-blue-50"
+                    >
+                      <b>{cable.name}</b>
+                      <br />
+                      {CABLE_TYPES[cable.type]?.label || cable.type} · {cable.fibers}F · {cable.distance_m}m
+                    </button>
+                  ))}
+              </Section>
+            </div>
+          )}
+
+          {selectedCable && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-slate-950">{selectedCable.name}</h2>
+              <Info label="Tipo" value={CABLE_TYPES[selectedCable.type]?.label || selectedCable.type} />
+              <Info label="Estado" value={selectedCable.status === "cut" ? "Cortado" : "Activo"} />
+              <Info label="Origen" value={nodeById(selectedCable.from)?.name || selectedCable.from} />
+              <Info label="Destino" value={nodeById(selectedCable.to)?.name || selectedCable.to} />
+              <Info label="Fibras" value={`${selectedCable.fibers}F`} />
+              <Info label="Distancia" value={`${selectedCable.distance_m} m`} />
+              <Info label="Pérdida" value={`${selectedCable.loss_db} dB`} />
+
+              <div className="grid grid-cols-2 gap-2">
+                <SmallButton onClick={addSplitterOnCable}>Agregar splitter</SmallButton>
+                <SmallButton onClick={toggleCableCut}>Cortar/reparar</SmallButton>
+                <SmallButton danger onClick={deleteSelectedCable}>Eliminar</SmallButton>
               </div>
             </div>
+          )}
 
-            <Info label="Estado" value={selectedNode.status} />
-            <Info label="Splitter" value={selectedNode.splitter} />
-            <Info label="Puertos" value={selectedNode.ports} />
-            <Info label="Potencia IN" value={selectedNode.powerIn} />
-            <Info label="Potencia OUT" value={selectedNode.powerOut} />
+          {!selectedNode && !selectedCable && <p className="text-slate-500">Seleccioná una NAP o cable.</p>}
 
-            <button className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">
-              Ver interior de caja
-            </button>
-          </div>
+          {showNodeForm && (
+            <div className="mt-5 border-t pt-4">
+              <h3 className="mb-3 font-bold text-slate-900">Nuevo punto</h3>
+              <NodeForm form={nodeForm} setForm={setNodeForm} onSubmit={createNode} onCancel={() => setShowNodeForm(false)} />
+            </div>
+          )}
+
+          {showCableForm && (
+            <div className="mt-5 border-t pt-4">
+              <h3 className="mb-3 font-bold text-slate-900">Nuevo cable</h3>
+              <CableForm form={cableForm} setForm={setCableForm} nodes={nodes} onSubmit={createCable} onCancel={() => setShowCableForm(false)} />
+            </div>
+          )}
         </Panel>
       </div>
-
-      <Panel title="Cables">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b bg-slate-50 text-left">
-                <th className="p-3">Nombre</th>
-                <th className="p-3">Tipo</th>
-                <th className="p-3">Origen</th>
-                <th className="p-3">Destino</th>
-                <th className="p-3">Pérdida</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cables.map((cable) => (
-                <tr key={cable.id} className="border-b">
-                  <td className="p-3 font-bold">{cable.name}</td>
-                  <td className="p-3">{cable.type}</td>
-                  <td className="p-3">{cable.from}</td>
-                  <td className="p-3">{cable.to}</td>
-                  <td className="p-3">{cable.loss}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
     </div>
   );
 }
 
-function MapNode({ node, x, y, selected, onClick }) {
+function MapNode({ node, selected, onMouseDown }) {
   const type = NODE_TYPES[node.type] || NODE_TYPES.nap;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="absolute -translate-x-1/2 -translate-y-1/2 text-center"
-      style={{ left: x, top: y }}
+    <div
+      className="absolute -translate-x-1/2 -translate-y-1/2 cursor-move text-center"
+      style={{ left: node.x, top: node.y }}
+      onMouseDown={onMouseDown}
     >
       <div
         className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl border-4 text-xl shadow-lg ${
-          selected ? "border-yellow-400" : "border-white"
+          selected ? "border-yellow-400 ring-4 ring-yellow-200" : "border-white"
         }`}
         style={{ backgroundColor: type.color }}
       >
@@ -191,7 +604,115 @@ function MapNode({ node, x, y, selected, onClick }) {
       <div className="mt-1 rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-900 shadow">
         {node.name}
       </div>
-    </button>
+    </div>
+  );
+}
+
+function MapRoads() {
+  return (
+    <svg className="absolute inset-0 h-full w-full">
+      <path d="M0 120 C220 90 430 140 900 100" stroke="#94a3b8" strokeWidth="28" fill="none" strokeLinecap="round" />
+      <path d="M0 120 C220 90 430 140 900 100" stroke="#e2e8f0" strokeWidth="18" fill="none" strokeLinecap="round" />
+      <path d="M70 620 C300 420 520 420 940 360" stroke="#94a3b8" strokeWidth="28" fill="none" strokeLinecap="round" />
+      <path d="M70 620 C300 420 520 420 940 360" stroke="#e2e8f0" strokeWidth="18" fill="none" strokeLinecap="round" />
+      <path d="M180 0 C260 210 340 360 440 610" stroke="#94a3b8" strokeWidth="28" fill="none" strokeLinecap="round" />
+      <path d="M180 0 C260 210 340 360 440 610" stroke="#e2e8f0" strokeWidth="18" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NodeHeader({ node }) {
+  const type = NODE_TYPES[node.type] || NODE_TYPES.nap;
+
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="flex h-12 w-12 items-center justify-center rounded-xl text-2xl text-white"
+        style={{ backgroundColor: type.color }}
+      >
+        {type.icon}
+      </div>
+      <div>
+        <h2 className="text-xl font-bold text-slate-950">{node.name}</h2>
+        <p className="text-sm text-slate-500">{type.label}</p>
+      </div>
+    </div>
+  );
+}
+
+function NodeForm({ form, setForm, onSubmit, onCancel }) {
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <Input placeholder="Nombre" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+
+      <Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+        {Object.entries(NODE_TYPES).map(([key, item]) => (
+          <option key={key} value={key}>{item.label}</option>
+        ))}
+      </Select>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Input type="number" placeholder="X" value={form.x} onChange={(event) => setForm({ ...form, x: event.target.value })} />
+        <Input type="number" placeholder="Y" value={form.y} onChange={(event) => setForm({ ...form, y: event.target.value })} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <Input placeholder="Splitter" value={form.splitter} onChange={(event) => setForm({ ...form, splitter: event.target.value })} />
+        <Input type="number" placeholder="Puertos" value={form.ports_total} onChange={(event) => setForm({ ...form, ports_total: event.target.value })} />
+        <Input type="number" placeholder="Usados" value={form.ports_used} onChange={(event) => setForm({ ...form, ports_used: event.target.value })} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Input placeholder="Potencia IN" value={form.power_in} onChange={(event) => setForm({ ...form, power_in: event.target.value })} />
+        <Input placeholder="Potencia OUT" value={form.power_out} onChange={(event) => setForm({ ...form, power_out: event.target.value })} />
+      </div>
+
+      <Input placeholder="Dirección" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="submit" className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Guardar</button>
+        <button type="button" onClick={onCancel} className="rounded-xl border border-slate-200 px-4 py-3 font-bold text-slate-700">Cancelar</button>
+      </div>
+    </form>
+  );
+}
+
+function CableForm({ form, setForm, nodes, onSubmit, onCancel }) {
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <Input placeholder="Nombre" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+
+      <Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+        {Object.entries(CABLE_TYPES).map(([key, item]) => (
+          <option key={key} value={key}>{item.label}</option>
+        ))}
+      </Select>
+
+      <Select value={form.from} onChange={(event) => setForm({ ...form, from: event.target.value })}>
+        <option value="">Origen</option>
+        {nodes.map((node) => (
+          <option key={node.id} value={node.id}>{node.name}</option>
+        ))}
+      </Select>
+
+      <Select value={form.to} onChange={(event) => setForm({ ...form, to: event.target.value })}>
+        <option value="">Destino</option>
+        {nodes.map((node) => (
+          <option key={node.id} value={node.id}>{node.name}</option>
+        ))}
+      </Select>
+
+      <div className="grid grid-cols-3 gap-2">
+        <Input type="number" placeholder="Fibras" value={form.fibers} onChange={(event) => setForm({ ...form, fibers: event.target.value })} />
+        <Input type="number" placeholder="Metros" value={form.distance_m} onChange={(event) => setForm({ ...form, distance_m: event.target.value })} />
+        <Input type="number" placeholder="Pérdida" value={form.loss_db} onChange={(event) => setForm({ ...form, loss_db: event.target.value })} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="submit" className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white">Guardar</button>
+        <button type="button" onClick={onCancel} className="rounded-xl border border-slate-200 px-4 py-3 font-bold text-slate-700">Cancelar</button>
+      </div>
+    </form>
   );
 }
 
@@ -213,11 +734,60 @@ function Panel({ title, children }) {
   );
 }
 
-function Tool({ children }) {
+function Section({ title, children }) {
   return (
-    <button type="button" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+    <div className="border-t border-slate-100 pt-4">
+      <h3 className="mb-2 font-bold text-slate-900">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function TopButton({ children, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700">
       {children}
     </button>
+  );
+}
+
+function ToolButton({ children, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+      {children}
+    </button>
+  );
+}
+
+function SmallButton({ children, onClick, danger }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-3 py-2 text-sm font-bold ${
+        danger ? "bg-red-600 text-white" : "bg-blue-600 text-white"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Input(props) {
+  return (
+    <input
+      {...props}
+      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+    />
+  );
+}
+
+function Select(props) {
+  return (
+    <select
+      {...props}
+      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none focus:border-blue-400"
+    />
   );
 }
 
@@ -228,6 +798,39 @@ function Info({ label, value }) {
       <b className="text-right text-slate-900">{value}</b>
     </div>
   );
+}
+
+function getSplitterPorts(splitter) {
+  const match = String(splitter || "").match(/1:(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function emptyNodeForm() {
+  return {
+    type: "nap",
+    name: "",
+    x: 500,
+    y: 300,
+    splitter: "1:8",
+    ports_total: 8,
+    ports_used: 0,
+    power_in: "",
+    power_out: "",
+    address: "",
+    status: "active",
+  };
+}
+
+function emptyCableForm() {
+  return {
+    name: "",
+    type: "distribution",
+    from: "",
+    to: "",
+    fibers: 12,
+    distance_m: 0,
+    loss_db: 0,
+  };
 }
 
 export default FTTHManager;
