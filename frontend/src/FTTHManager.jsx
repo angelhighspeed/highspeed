@@ -138,12 +138,38 @@ const INITIAL_PORT_CONNECTIONS = [
   },
 ];
 
+const INITIAL_CABLE_CONNECTIONS = [
+  {
+    id: "cable-conn-01",
+    node_id: "nap-01",
+    cable_id: "cable-01",
+    port: "IN",
+    fiber: "Azul 1",
+    color: "#2563eb",
+    side: "left",
+    loss_db: 0.01,
+    notes: "Entrada troncal",
+  },
+  {
+    id: "cable-conn-02",
+    node_id: "nap-01",
+    cable_id: "cable-02",
+    port: "01",
+    fiber: "Azul 1",
+    color: "#16a34a",
+    side: "right",
+    loss_db: 0.01,
+    notes: "Salida distribución",
+  },
+];
+
 function FTTHManager() {
   const mapRef = useRef(null);
   const [nodes, setNodes] = useState(INITIAL_NODES);
   const [cables, setCables] = useState(INITIAL_CABLES);
   const [splices, setSplices] = useState(INITIAL_SPLICES);
   const [portConnections, setPortConnections] = useState(INITIAL_PORT_CONNECTIONS);
+  const [cableConnections, setCableConnections] = useState(INITIAL_CABLE_CONNECTIONS);
   const [selectedNodeId, setSelectedNodeId] = useState("nap-01");
   const [selectedCableId, setSelectedCableId] = useState("");
   const [insideNodeId, setInsideNodeId] = useState("");
@@ -163,6 +189,7 @@ function FTTHManager() {
       if (Array.isArray(data.cables)) setCables(data.cables);
       if (Array.isArray(data.splices)) setSplices(data.splices);
       if (Array.isArray(data.port_connections)) setPortConnections(data.port_connections);
+      if (Array.isArray(data.cable_connections)) setCableConnections(data.cable_connections);
       if (data.nodes?.[0]?.id) setSelectedNodeId(data.nodes[0].id);
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -194,7 +221,8 @@ function FTTHManager() {
     nextNodes = nodes,
     nextCables = cables,
     nextSplices = splices,
-    nextPortConnections = portConnections
+    nextPortConnections = portConnections,
+    nextCableConnections = cableConnections
   ) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -203,6 +231,7 @@ function FTTHManager() {
         cables: nextCables,
         splices: nextSplices,
         port_connections: nextPortConnections,
+        cable_connections: nextCableConnections,
         updated_at: new Date().toISOString(),
       })
     );
@@ -242,6 +271,7 @@ function FTTHManager() {
     setCables(INITIAL_CABLES);
     setSplices(INITIAL_SPLICES);
     setPortConnections(INITIAL_PORT_CONNECTIONS);
+    setCableConnections(INITIAL_CABLE_CONNECTIONS);
     setSelectedNodeId("nap-01");
     setSelectedCableId("");
     localStorage.setItem(
@@ -251,6 +281,7 @@ function FTTHManager() {
         cables: INITIAL_CABLES,
         splices: INITIAL_SPLICES,
         port_connections: INITIAL_PORT_CONNECTIONS,
+        cable_connections: INITIAL_CABLE_CONNECTIONS,
         updated_at: new Date().toISOString(),
       })
     );
@@ -307,14 +338,16 @@ function FTTHManager() {
     const nextCables = cables.filter((cable) => cable.from !== selectedNode.id && cable.to !== selectedNode.id);
     const nextSplices = splices.filter((splice) => splice.node_id !== selectedNode.id);
     const nextPortConnections = portConnections.filter((connection) => connection.node_id !== selectedNode.id);
+    const nextCableConnections = cableConnections.filter((connection) => connection.node_id !== selectedNode.id);
 
     setNodes(nextNodes);
     setCables(nextCables);
     setSplices(nextSplices);
     setPortConnections(nextPortConnections);
+    setCableConnections(nextCableConnections);
     setSelectedNodeId(nextNodes[0]?.id || "");
     setSelectedCableId("");
-    saveNetwork(nextNodes, nextCables, nextSplices, nextPortConnections);
+    saveNetwork(nextNodes, nextCables, nextSplices, nextPortConnections, nextCableConnections);
   };
 
   const startCreateCable = () => {
@@ -370,11 +403,13 @@ function FTTHManager() {
 
     const nextCables = cables.filter((cable) => cable.id !== selectedCable.id);
     const nextSplices = splices.filter((splice) => splice.cable_in !== selectedCable.id && splice.cable_out !== selectedCable.id);
+    const nextCableConnections = cableConnections.filter((connection) => connection.cable_id !== selectedCable.id);
 
     setCables(nextCables);
     setSplices(nextSplices);
+    setCableConnections(nextCableConnections);
     setSelectedCableId("");
-    saveNetwork(nodes, nextCables, nextSplices);
+    saveNetwork(nodes, nextCables, nextSplices, portConnections, nextCableConnections);
   };
 
   const toggleCableCut = () => {
@@ -463,14 +498,19 @@ function FTTHManager() {
 
   const savePortConnectionsFromModal = (nextPortConnections) => {
     setPortConnections(nextPortConnections);
-    saveNetwork(nodes, cables, splices, nextPortConnections);
+    saveNetwork(nodes, cables, splices, nextPortConnections, cableConnections);
+  };
+
+  const saveCableConnectionsFromModal = (nextCableConnections) => {
+    setCableConnections(nextCableConnections);
+    saveNetwork(nodes, cables, splices, portConnections, nextCableConnections);
   };
 
   const updateNodeFromModal = (updatedNode) => {
     const nextNodes = nodes.map((node) => (node.id === updatedNode.id ? updatedNode : node));
 
     setNodes(nextNodes);
-    saveNetwork(nextNodes, cables, splices, portConnections);
+    saveNetwork(nextNodes, cables, splices, portConnections, cableConnections);
   };
 
   return (
@@ -491,7 +531,7 @@ function FTTHManager() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-7">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-8">
         <Stat title="Puntos" value={stats.points} />
         <Stat title="Cables" value={stats.cables} />
         <Stat title="NAPs" value={stats.naps} />
@@ -685,6 +725,9 @@ function FTTHManager() {
           allSplices={splices}
           portConnections={portConnections.filter((connection) => connection.node_id === insideNode.id)}
           allPortConnections={portConnections}
+          cableConnections={cableConnections.filter((connection) => connection.node_id === insideNode.id)}
+          allCableConnections={cableConnections}
+          saveCableConnections={saveCableConnectionsFromModal}
           savePortConnections={savePortConnectionsFromModal}
           saveSplices={saveSplicesFromModal}
           updateNode={updateNodeFromModal}
@@ -703,6 +746,9 @@ function InsideBoxModal({
   allSplices,
   portConnections,
   allPortConnections,
+  cableConnections,
+  allCableConnections,
+  saveCableConnections,
   savePortConnections,
   saveSplices,
   updateNode,
@@ -732,6 +778,15 @@ function InsideBoxModal({
     ports_used: Number(node.ports_used || 0),
     power_in: node.power_in || "",
     power_out: node.power_out || "",
+  });
+  const [cableConnectionForm, setCableConnectionForm] = useState({
+    cable_id: cables[0]?.id || "",
+    port: "IN",
+    fiber: "",
+    color: CABLE_TYPES[cables[0]?.type]?.color || FIBER_COLORS[0],
+    side: "left",
+    loss_db: "0.01",
+    notes: "",
   });
 
   const currentPortsTotal = Math.min(Number(splitterForm.ports_total || getSplitterPorts(splitterForm.splitter) || 8), 64);
@@ -779,6 +834,66 @@ function InsideBoxModal({
       loss_db: "0.04",
       notes: "",
     });
+  };
+
+  const saveCableConnection = (event) => {
+    event.preventDefault();
+
+    if (!cableConnectionForm.cable_id || !cableConnectionForm.port || !cableConnectionForm.fiber) {
+      alert("Completá cable, puerto y fibra.");
+      return;
+    }
+
+    const existing = allCableConnections.find(
+      (connection) =>
+        connection.node_id === node.id &&
+        connection.cable_id === cableConnectionForm.cable_id
+    );
+
+    const nextConnection = {
+      id: existing?.id || `cable-conn-${Date.now()}`,
+      node_id: node.id,
+      cable_id: cableConnectionForm.cable_id,
+      port: cableConnectionForm.port,
+      fiber: cableConnectionForm.fiber,
+      color: cableConnectionForm.color || FIBER_COLORS[0],
+      side: cableConnectionForm.side || "left",
+      loss_db: Number(cableConnectionForm.loss_db || 0),
+      notes: cableConnectionForm.notes || "",
+    };
+
+    const nextCableConnections = existing
+      ? allCableConnections.map((connection) => (connection.id === existing.id ? nextConnection : connection))
+      : [...allCableConnections, nextConnection];
+
+    saveCableConnections(nextCableConnections);
+
+    setCableConnectionForm({
+      cable_id: cables[0]?.id || "",
+      port: "IN",
+      fiber: "",
+      color: CABLE_TYPES[cables[0]?.type]?.color || FIBER_COLORS[0],
+      side: "left",
+      loss_db: "0.01",
+      notes: "",
+    });
+  };
+
+  const editCableConnection = (connection) => {
+    setCableConnectionForm({
+      cable_id: connection.cable_id,
+      port: connection.port,
+      fiber: connection.fiber,
+      color: connection.color || FIBER_COLORS[0],
+      side: connection.side || "left",
+      loss_db: String(connection.loss_db ?? "0.01"),
+      notes: connection.notes || "",
+    });
+  };
+
+  const deleteCableConnection = (connectionId) => {
+    if (!window.confirm("¿Eliminar esta unión de cable a caja?")) return;
+    saveCableConnections(allCableConnections.filter((connection) => connection.id !== connectionId));
   };
 
   const saveSplitterConfig = (event) => {
@@ -918,6 +1033,29 @@ function InsideBoxModal({
                   );
                 })}
 
+                {cableConnections.map((connection, index) => {
+                  const y = portToY(connection.port, index);
+                  const x1 = connection.side === "left" ? 35 : 1135;
+                  const x2 = connection.side === "left" ? 292 : 887;
+                  const labelX = connection.side === "left" ? 45 : 940;
+
+                  return (
+                    <g key={connection.id}>
+                      <path
+                        d={`M ${x1} ${y} C ${connection.side === "left" ? 120 : 1050} ${y}, ${connection.side === "left" ? 210 : 980} ${y}, ${x2} ${y}`}
+                        stroke={connection.color || FIBER_COLORS[index % FIBER_COLORS.length]}
+                        strokeWidth="8"
+                        fill="none"
+                        strokeLinecap="round"
+                        opacity="0.95"
+                      />
+                      <text x={labelX} y={y - 10} className="fill-slate-800 text-[12px] font-bold">
+                        {allCables.find((cable) => cable.id === connection.cable_id)?.name || "Cable"} · {connection.fiber}
+                      </text>
+                    </g>
+                  );
+                })}
+
                 {portConnections.map((connection, index) => {
                   const fromY = portToY(connection.from_port, index);
                   const toY = portToY(connection.to_port, index + 2);
@@ -1023,6 +1161,74 @@ function InsideBoxModal({
                   Guardar splitter
                 </button>
               </form>
+            </Panel>
+
+            <Panel title="Editar cable unido a la caja">
+              <form onSubmit={saveCableConnection} className="space-y-3">
+                <Select
+                  value={cableConnectionForm.cable_id}
+                  onChange={(event) => {
+                    const cable = allCables.find((item) => item.id === event.target.value);
+                    setCableConnectionForm({
+                      ...cableConnectionForm,
+                      cable_id: event.target.value,
+                      color: CABLE_TYPES[cable?.type]?.color || cableConnectionForm.color,
+                    });
+                  }}
+                >
+                  <option value="">Cable</option>
+                  {cables.map((cable) => (
+                    <option key={cable.id} value={cable.id}>{cable.name}</option>
+                  ))}
+                </Select>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={cableConnectionForm.port} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, port: event.target.value })}>
+                    <option value="IN">Entrada IN</option>
+                    {ports.map((port) => (
+                      <option key={port.port} value={port.port}>Puerto {port.port}</option>
+                    ))}
+                  </Select>
+
+                  <Select value={cableConnectionForm.side} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, side: event.target.value })}>
+                    <option value="left">Entra por izquierda</option>
+                    <option value="right">Sale por derecha</option>
+                  </Select>
+                </div>
+
+                <Input placeholder="Fibra/tubo. Ej: Azul 1" value={cableConnectionForm.fiber} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, fiber: event.target.value })} />
+                <Input type="number" step="0.01" placeholder="Pérdida conexión dB" value={cableConnectionForm.loss_db} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, loss_db: event.target.value })} />
+                <Input type="color" value={cableConnectionForm.color} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, color: event.target.value })} />
+                <Input placeholder="Notas" value={cableConnectionForm.notes} onChange={(event) => setCableConnectionForm({ ...cableConnectionForm, notes: event.target.value })} />
+
+                <button type="submit" className="w-full rounded-xl bg-orange-600 px-4 py-3 font-bold text-white">
+                  Guardar unión cable-caja
+                </button>
+              </form>
+            </Panel>
+
+            <Panel title="Cables unidos a esta caja">
+              {cableConnections.map((connection) => (
+                <div key={connection.id} className="mb-2 rounded-xl bg-orange-50 p-3 text-sm">
+                  <b>{allCables.find((cable) => cable.id === connection.cable_id)?.name || connection.cable_id}</b>
+                  <br />
+                  Puerto: {connection.port} · Fibra: {connection.fiber}
+                  <br />
+                  Lado: {connection.side === "left" ? "izquierda" : "derecha"} · Pérdida: {connection.loss_db} dB
+                  {connection.notes ? <><br />Notas: {connection.notes}</> : null}
+                  <br />
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" onClick={() => editCableConnection(connection)} className="rounded bg-blue-600 px-3 py-1 text-xs font-bold text-white">
+                      Editar
+                    </button>
+                    <button type="button" onClick={() => deleteCableConnection(connection.id)} className="rounded bg-red-600 px-3 py-1 text-xs font-bold text-white">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {!cableConnections.length && <p className="text-sm text-slate-500">Sin cables unidos a puertos.</p>}
             </Panel>
 
             <Panel title="Unir fibra entre puertos">
