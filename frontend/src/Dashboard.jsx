@@ -8,7 +8,6 @@ import CustomerManager from "./CustomerManager";
 import PlanManager from "./PlanManager";
 import OnlineClients from "./OnlineClients";
 import ClientTraffic from "./ClientTraffic";
-import FTTHManager from "./FTTHManager";
 
 import {
   BarChart,
@@ -165,7 +164,6 @@ function Dashboard({ onLogout }) {
   const canManageInvoices = ["admin", "cobrador"].includes(role);
 
   const canViewTickets = ["admin", "tecnico", "operador"].includes(role);
-  const canViewFTTH = ["admin", "tecnico", "operador"].includes(role);
   const canManageTickets = ["admin", "tecnico"].includes(role);
 
   const canViewInstallations = ["admin", "tecnico", "operador"].includes(role);
@@ -1655,15 +1653,7 @@ ${detail}`);
               onClick={() => setSection("notifications")}
             />
           )}
-           {canViewFTTH && (
-              <SidebarButton
-                icon="🔀"
-                label="Red FTTH"
-                active={section === "ftth"}
-                onClick={() => setSection("ftth")}
-            />
-          )}
-
+           
           {canViewTickets && (
             <SidebarButton
               icon="🎫"
@@ -1753,8 +1743,6 @@ ${detail}`);
         )}
 
         {section === "customers" && canViewCustomers && <CustomerManager />}
-
-        {section === "ftth" && canViewFTTH && <FTTHManager />}
 
         {section === "online" && canViewOnline && <OnlineClients />}
 
