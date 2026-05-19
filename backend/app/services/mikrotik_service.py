@@ -1,5 +1,9 @@
 from datetime import datetime
 from librouteros import connect
+import platform
+import re
+import subprocess
+
 
 HOST = "10.70.1.1"
 USERNAME = "root"
@@ -363,3 +367,49 @@ def get_mikrotik_interfaces_debug():
             "tx-byte",
         )
     )
+def ping_address(address: str, count: int = 4):
+    target = str(address or "").strip()
+    if not target:
+        return {"status": "error", "message": "Dirección vacía."}
+
+    safe_count = max(1, min(int(count or 4), 10))
+    system = platform.system().lower()
+
+    command = ["ping", "-n", str(safe_count), target] if "windows" in system else ["ping", "-c", str(safe_count), target]
+
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=12)
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "offline",
+            "address": target,
+            "message": "Tiempo de espera agotado.",
+            "avg_ms": None,
+            "packet_loss": 100,
+        }
+
+    output = f"{completed.stdout}\n{completed.stderr}"
+    packet_loss = None
+    avg_ms = None
+
+    loss_match = re.search(r"(\d+)%\s*(?:loss|perdidos|perdida|pérdida)", output, re.IGNORECASE)
+    if loss_match:
+        packet_loss = int(loss_match.group(1))
+
+    avg_match = re.search(r"(?:Media|Average)\s*=\s*(\d+)\s*ms", output, re.IGNORECASE)
+    if avg_match:
+        avg_ms = int(avg_match.group(1))
+
+    linux_avg_match = re.search(r"=\s*[\d.]+/([\d.]+)/[\d.]+", output)
+    if avg_ms is None and linux_avg_match:
+        avg_ms = float(linux_avg_match.group(1))
+
+    is_online = completed.returncode == 0 and (packet_loss is None or packet_loss < 100)
+
+    return {
+        "status": "online" if is_online else "offline",
+        "address": target,
+        "avg_ms": avg_ms,
+        "packet_loss": packet_loss if packet_loss is not None else (0 if is_online else 100),
+        "raw": output[-2000:],
+    }

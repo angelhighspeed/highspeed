@@ -5,6 +5,7 @@ from app.auth.dependencies import require_roles
 from app.schemas.pppoe_schema import PPPoESecretCreate
 
 from app.services.mikrotik_service import (
+    ping_address,
     get_system_resources,
     get_pppoe_secrets,
     create_pppoe_secret,
@@ -209,5 +210,19 @@ def mikrotik_traffic(
         return {
             "status": "offline",
             "message": "No se pudo leer tráfico MikroTik",
+            "error": str(e),
+        }
+@router.get("/mikrotik/ping")
+def mikrotik_ping(
+    address: str = Query(...),
+    count: int = Query(4, ge=1, le=10),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    try:
+        return ping_address(address, count=count)
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": "No se pudo ejecutar ping.",
             "error": str(e),
         }

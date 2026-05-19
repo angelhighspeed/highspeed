@@ -10,7 +10,10 @@ import {
   YAxis,
 } from "recharts";
 
-const API = import.meta.env.VITE_API_URL;
+const API =
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:8000";
 
 const getAuthHeaders = () => ({
   headers: {
@@ -44,6 +47,10 @@ function ClientTraffic() {
   const [importingUser, setImportingUser] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [history, setHistory] = useState([]);
+  const [clientHistory, setClientHistory] = useState({});
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [pingLoading, setPingLoading] = useState("");
+  const [pingResults, setPingResults] = useState({});
 
   const previousRef = useRef({});
 
@@ -66,6 +73,7 @@ function ClientTraffic() {
         : [];
 
       const now = Date.now();
+      const nowLabel = new Date().toLocaleTimeString();
 
       const calculated = trafficData.map((item) => {
         const username = item.name;
@@ -120,25 +128,84 @@ function ClientTraffic() {
       );
 
       const point = {
-        time: new Date().toLocaleTimeString(),
+        time: nowLabel,
         rx: Number(totalRx.toFixed(2)),
         tx: Number(totalTx.toFixed(2)),
       };
 
       setHistory((prev) => [...prev, point].slice(-30));
+
+      setClientHistory((prev) => {
+        const next = { ...prev };
+
+        calculated.forEach((item) => {
+          if (!item.name) return;
+
+          next[item.name] = [
+            ...(next[item.name] || []),
+            {
+              time: nowLabel,
+              rx: Number(item.rx_mbps || 0),
+              tx: Number(item.tx_mbps || 0),
+              rx_total: Number(item.rx_bytes || 0),
+              tx_total: Number(item.tx_bytes || 0),
+            },
+          ].slice(-60);
+        });
+
+        return next;
+      });
       setTraffic(calculated);
       setCustomers(customersData);
       setLastUpdate(new Date().toLocaleTimeString());
     } catch (error) {
-      console.error("Error cargando tráfico de clientes:", error);
+      console.error("Error cargando trÃ¡fico de clientes:", error);
     } finally {
       setLoading(false);
     }
   };
 
+  const pingClient = async (item) => {
+    if (!item?.address) {
+      alert("Este cliente no tiene IP activa para hacer ping.");
+      return;
+    }
+
+    try {
+      setPingLoading(item.name);
+
+      const res = await axios.get(
+        `${API}/mikrotik/ping?address=${encodeURIComponent(item.address)}`,
+        getAuthHeaders()
+      );
+
+      setPingResults((prev) => ({
+        ...prev,
+        [item.name]: res.data,
+      }));
+    } catch (error) {
+      console.error("Error haciendo ping:", error);
+
+      setPingResults((prev) => ({
+        ...prev,
+        [item.name]: {
+          status: "error",
+          message: "No se pudo ejecutar ping.",
+          error: error?.response?.data?.detail || error.message,
+        },
+      }));
+    } finally {
+      setPingLoading("");
+    }
+  };
+
+  const showClientGraph = (item) => {
+    setSelectedClient(item);
+  };
+
   const importCustomerFromMikrotik = async (item) => {
     const ok = window.confirm(
-      `¿Importar el cliente PPPoE "${item.name}" al CRM?`
+      `Â¿Importar el cliente PPPoE "${item.name}" al CRM?`
     );
 
     if (!ok) return;
@@ -219,13 +286,17 @@ function ClientTraffic() {
     0
   );
 
+  const selectedHistory = selectedClient?.name
+    ? clientHistory[selectedClient.name] || []
+    : [];
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-4xl font-bold flex items-center gap-3">
-            <span className="text-blue-600">📊</span>
-            Tráfico de Clientes
+            <span className="text-blue-600">ðŸ“Š</span>
+            TrÃ¡fico de Clientes
           </h1>
 
           <p className="text-slate-500 mt-2">
@@ -234,7 +305,7 @@ function ClientTraffic() {
 
           {lastUpdate && (
             <p className="text-sm text-slate-400 mt-1">
-              Última actualización: {lastUpdate}
+              Ãšltima actualizaciÃ³n: {lastUpdate}
             </p>
           )}
         </div>
@@ -273,7 +344,7 @@ function ClientTraffic() {
         />
       </div>
 
-      <Panel title="Gráfico realtime general">
+      <Panel title="GrÃ¡fico realtime general">
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={history}>
@@ -328,16 +399,88 @@ function ClientTraffic() {
         </div>
       </Panel>
 
+      {selectedClient && (
+        <Panel title={`Gráfico del cliente: ${selectedClient.name}`}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-slate-600">
+              IP: <b>{selectedClient.address || "-"}</b> · Interfaz:{" "}
+              <b>{selectedClient.interface || "No detectada"}</b>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSelectedClient(null)}
+              className="rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white"
+            >
+              Cerrar gráfica
+            </button>
+          </div>
+
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={selectedHistory}>
+                <defs>
+                  <linearGradient
+                    id="rxSingleClientGradient"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.02} />
+                  </linearGradient>
+
+                  <linearGradient
+                    id="txSingleClientGradient"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
+                <XAxis dataKey="time" stroke="#64748b" />
+                <YAxis stroke="#64748b" />
+                <Tooltip />
+
+                <Area
+                  type="monotone"
+                  dataKey="rx"
+                  name="RX Mbps"
+                  stroke="#2563eb"
+                  fill="url(#rxSingleClientGradient)"
+                  strokeWidth={3}
+                />
+
+                <Area
+                  type="monotone"
+                  dataKey="tx"
+                  name="TX Mbps"
+                  stroke="#22c55e"
+                  fill="url(#txSingleClientGradient)"
+                  strokeWidth={3}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+      )}
+
       <Panel>
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="text-xl font-bold text-slate-900">
-              Clientes PPPoE con tráfico
+              Clientes PPPoE con trÃ¡fico
             </h3>
 
             <p className="text-sm text-slate-500">
               La primera lectura puede aparecer en 0 Mbps; desde la segunda
-              actualización calcula velocidad real.
+              actualizaciÃ³n calcula velocidad real.
             </p>
           </div>
 
@@ -364,12 +507,14 @@ function ClientTraffic() {
                 <th className="p-3">RX Total</th>
                 <th className="p-3">TX Total</th>
                 <th className="p-3">Uptime</th>
+                <th className="p-3">Herramientas</th>
               </tr>
             </thead>
 
             <tbody>
               {filteredTraffic.map((item) => {
                 const customer = findCustomer(item.name);
+                const pingResult = pingResults[item.name];
 
                 return (
                   <tr
@@ -440,14 +585,59 @@ function ClientTraffic() {
                     <td className="p-3">{formatBytes(item.tx_bytes)}</td>
 
                     <td className="p-3">{item.uptime || "-"}</td>
+
+                    <td className="p-3">
+                      <div className="flex min-w-[190px] flex-col gap-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => pingClient(item)}
+                            disabled={pingLoading === item.name}
+                            className="rounded-lg bg-slate-800 px-3 py-1 text-xs font-bold text-white hover:bg-slate-700 disabled:opacity-60"
+                          >
+                            {pingLoading === item.name ? "Ping..." : "Ping"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => showClientGraph(item)}
+                            className="rounded-lg bg-purple-600 px-3 py-1 text-xs font-bold text-white hover:bg-purple-500"
+                          >
+                            Ver gráfica
+                          </button>
+                        </div>
+
+                        {pingResult && (
+                          <div
+                            className={`rounded-lg px-2 py-1 text-xs ${
+                              pingResult.status === "online"
+                                ? "bg-green-50 text-green-700"
+                                : "bg-red-50 text-red-700"
+                            }`}
+                          >
+                            <b>
+                              {pingResult.status === "online"
+                                ? "Online"
+                                : "Sin respuesta"}
+                            </b>
+                            {pingResult.avg_ms !== undefined && (
+                              <span> · {pingResult.avg_ms} ms</span>
+                            )}
+                            {pingResult.packet_loss !== undefined && (
+                              <span> · pérdida {pingResult.packet_loss}%</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
 
               {filteredTraffic.length === 0 && (
                 <tr>
-                  <td colSpan="11" className="p-8 text-center text-slate-400">
-                    No hay clientes con tráfico para mostrar.
+                  <td colSpan="12" className="p-8 text-center text-slate-400">
+                    No hay clientes con trÃ¡fico para mostrar.
                   </td>
                 </tr>
               )}
