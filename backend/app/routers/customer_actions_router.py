@@ -129,6 +129,56 @@ def get_customer_router(db: Session, customer: Customer):
 
 def get_mikrotik_api_for_customer(db: Session, customer: Customer):
     """
+    Usa el router_id del cliente.
+    Si el cliente no tiene router_id, usa el primer router cargado en el sistema.
+    Siempre devuelve un objeto routeros_api, compatible con api.get_resource().
+    """
+
+    if Router is None:
+        raise Exception("No está disponible el modelo Router.")
+
+    router_id = get_first_attr(customer, ["router_id", "mikrotik_router_id"], None)
+
+    router = None
+
+    if router_id:
+        router = db.query(Router).filter(Router.id == router_id).first()
+
+    if router is None:
+        router = db.query(Router).order_by(Router.id.asc()).first()
+
+    if router is None:
+        raise Exception(
+            "No hay router MikroTik configurado. Cargá un router en Routers MikroTik."
+        )
+
+    host = get_first_attr(router, ["host", "ip", "address"])
+    username = get_first_attr(router, ["username", "user", "usuario"])
+    password = get_first_attr(router, ["password", "pass", "clave"])
+    port = get_first_attr(router, ["api_port", "port"], 8728)
+
+    if not host or not username or not password:
+        raise Exception(
+            "El router no tiene host, usuario o password configurado."
+        )
+
+    try:
+        import routeros_api
+    except Exception:
+        raise Exception(
+            "Falta instalar routeros-api. Ejecutá: python -m pip install routeros-api"
+        )
+
+    connection = routeros_api.RouterOsApiPool(
+        host=host,
+        username=username,
+        password=password,
+        port=int(port or 8728),
+        plaintext_login=True,
+    )
+
+    return connection.get_api(), router
+    """
     Usa el router_id del cliente si existe.
     Si no existe router_id, usa el mikrotik_service viejo como fallback.
     """
