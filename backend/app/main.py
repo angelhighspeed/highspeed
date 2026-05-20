@@ -23,6 +23,7 @@ from app.routers.customer_router import router as customer_router
 from app.routers.customer_payment_history_router import (
     router as customer_payment_history_router,
 )
+from app.routers.backup_router import router as backup_router
 from app.routers.customer_finance_router import router as customer_finance_router
 
 from app.routers.plan_router import router as plan_router
@@ -96,6 +97,7 @@ app.include_router(invoice_export_router)
 app.include_router(invoice_pdf_router)
 app.include_router(invoice_receipt_router)
 app.include_router(auto_cut_router)
+app.include_router(backup_router)
 
 app.include_router(cashbox_router)
 app.include_router(company_settings_router)
