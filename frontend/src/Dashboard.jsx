@@ -9,6 +9,7 @@ import PlanManager from "./PlanManager";
 import OnlineClients from "./OnlineClients";
 import ClientTraffic from "./ClientTraffic";
 import AutoCutManager from "./AutoCutManager";
+import BackupImportManager from "./BackupImportManager";
 
 import {
   BarChart,
@@ -154,6 +155,7 @@ function Dashboard({ onLogout }) {
   const canViewOnline = ["admin", "tecnico"].includes(role);
   const canViewClientTraffic = ["admin", "tecnico"].includes(role);
   const canViewAutoCut = ["admin", "operador", "cobrador"].includes(role);
+  const canViewBackup = role === "admin";
 
   const canViewPlans = [
     "admin",
@@ -1700,6 +1702,14 @@ ${detail}`);
               onClick={() => setSection("company")}
             />
           )}
+           {canViewBackup && (
+             <SidebarButton
+               icon="💾"
+               label="Respaldo"
+               active={section === "backup"}
+               onClick={() => setSection("backup")}
+             />
+           )}
 
           {canViewMikrotik && (
             <SidebarButton
@@ -1761,6 +1771,8 @@ ${detail}`);
           <ClientTraffic />
         )}
         {section === "autoCut" && canViewAutoCut && <AutoCutManager />}
+        
+        {section === "backup" && canViewBackup && <BackupImportManager />}
 
         {section === "plans" && canViewPlans && <PlanManager />}
 
