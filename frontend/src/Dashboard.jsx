@@ -8,6 +8,7 @@ import CustomerManager from "./CustomerManager";
 import PlanManager from "./PlanManager";
 import OnlineClients from "./OnlineClients";
 import ClientTraffic from "./ClientTraffic";
+import AutoCutManager from "./AutoCutManager";
 
 import {
   BarChart,
@@ -152,6 +153,7 @@ function Dashboard({ onLogout }) {
   const canViewCustomers = ["admin", "tecnico", "operador"].includes(role);
   const canViewOnline = ["admin", "tecnico"].includes(role);
   const canViewClientTraffic = ["admin", "tecnico"].includes(role);
+  const canViewAutoCut = ["admin", "operador", "cobrador"].includes(role);
 
   const canViewPlans = [
     "admin",
@@ -1645,6 +1647,15 @@ ${detail}`);
             />
           )}
 
+           {canViewAutoCut && (
+             <SidebarButton
+               icon="✂️"
+               label="Corte automático"
+               active={section === "autoCut"}
+               onClick={() => setSection("autoCut")}
+             />
+           )}
+
           {canViewNotifications && (
             <SidebarButton
               icon="💬"
@@ -1749,6 +1760,7 @@ ${detail}`);
         {section === "clientTraffic" && canViewClientTraffic && (
           <ClientTraffic />
         )}
+        {section === "autoCut" && canViewAutoCut && <AutoCutManager />}
 
         {section === "plans" && canViewPlans && <PlanManager />}
 
