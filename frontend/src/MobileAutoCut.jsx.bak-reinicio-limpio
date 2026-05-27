@@ -1,0 +1,494 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getClientName(item) {
+  return (
+    item.customer_name ||
+    item.client_name ||
+    item.full_name ||
+    item.name ||
+    item.nombre ||
+    `Cliente #${item.customer_id || item.id || "-"}`
+  );
+}
+
+function getDebt(item) {
+  return (
+    item.debt ||
+    item.total_debt ||
+    item.amount_due ||
+    item.balance ||
+    item.monto_deuda ||
+    item.total ||
+    0
+  );
+}
+
+function getStatus(item) {
+  const raw = String(
+    item.cut_status ||
+      item.service_status ||
+      item.status ||
+      item.estado ||
+      ""
+  ).toLowerCase();
+
+  if (raw.includes("cut") || raw.includes("cortado")) return "Cortado";
+  if (raw.includes("suspend")) return "Suspendido";
+  if (raw.includes("active") || raw.includes("activo")) return "Activo";
+  if (raw.includes("pending") || raw.includes("pendiente")) return "Pendiente";
+
+  return raw ? raw : "Pendiente";
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("activo")) return "ok";
+  if (s.includes("cortado") || s.includes("suspendido")) return "bad";
+  if (s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function MobileAutoCut() {
+  const [clients, setClients] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("deuda");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [runningId, setRunningId] = useState(null);
+  const [runningGlobal, setRunningGlobal] = useState(false);
+
+  const loadDebtors = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/autocut/debtors`,
+        `${API}/auto-cut/debtors`,
+        `${API}/customers/debtors`,
+        `${API}/debtors`,
+        `${API}/customers`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento autocut falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.customers)
+        ? res.data.customers
+        : Array.isArray(res?.data?.debtors)
+        ? res.data.debtors
+        : [];
+
+      setClients(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los clientes con deuda.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDebtors();
+  }, []);
+
+  const stats = useMemo(() => {
+    let debtors = 0;
+    let cut = 0;
+    let active = 0;
+    let totalDebt = 0;
+
+    clients.forEach((item) => {
+      const debt = Number(getDebt(item));
+      const status = getStatus(item).toLowerCase();
+
+      if (debt > 0) debtors += 1;
+      if (status.includes("cortado") || status.includes("suspendido")) cut += 1;
+      if (status.includes("activo")) active += 1;
+
+      totalDebt += debt;
+    });
+
+    return {
+      total: clients.length,
+      debtors,
+      cut,
+      active,
+      totalDebt,
+    };
+  }, [clients]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return clients.filter((item) => {
+      const name = getClientName(item).toLowerCase();
+      const status = getStatus(item).toLowerCase();
+      const debt = Number(getDebt(item));
+
+      const text = [
+        name,
+        item.phone,
+        item.telefono,
+        item.address,
+        item.direccion,
+        item.plan_name,
+        item.plan,
+        item.pppoe_user,
+        item.username,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+
+      let matchStatus = true;
+
+      if (statusFilter === "deuda") {
+        matchStatus = debt > 0;
+      } else if (statusFilter === "cortados") {
+        matchStatus = status.includes("cortado") || status.includes("suspendido");
+      } else if (statusFilter === "activos") {
+        matchStatus = status.includes("activo");
+      }
+
+      return matchText && matchStatus;
+    });
+  }, [clients, query, statusFilter]);
+
+  const runAutoCut = async () => {
+    const ok = confirm("¿Ejecutar corte automático para clientes con deuda?");
+
+    if (!ok) return;
+
+    try {
+      setRunningGlobal(true);
+
+      let success = false;
+
+      const attempts = [
+        () => axios.post(`${API}/autocut/run`, {}, getHeaders()),
+        () => axios.post(`${API}/auto-cut/run`, {}, getHeaders()),
+        () => axios.post(`${API}/autocut/execute`, {}, getHeaders()),
+        () => axios.post(`${API}/auto-cut/execute`, {}, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento corte global falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint de corte automático. La vista quedó lista.");
+      } else {
+        alert("Corte automático ejecutado.");
+        await loadDebtors();
+      }
+    } finally {
+      setRunningGlobal(false);
+    }
+  };
+
+  const cutClient = async (item) => {
+    const ok = confirm(`¿Cortar servicio a ${getClientName(item)}?`);
+
+    if (!ok) return;
+
+    try {
+      setRunningId(item.id || item.customer_id);
+
+      const id = item.customer_id || item.id;
+
+      let success = false;
+
+      const attempts = [
+        () => axios.post(`${API}/autocut/customers/${id}/cut`, {}, getHeaders()),
+        () => axios.post(`${API}/auto-cut/customers/${id}/cut`, {}, getHeaders()),
+        () => axios.post(`${API}/customers/${id}/cut-service`, {}, getHeaders()),
+        () => axios.post(`${API}/customers/${id}/suspend`, {}, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento cortar cliente falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para corte manual.");
+      } else {
+        alert("Servicio cortado.");
+        await loadDebtors();
+      }
+    } finally {
+      setRunningId(null);
+    }
+  };
+
+  const restoreClient = async (item) => {
+    const ok = confirm(`¿Restaurar servicio a ${getClientName(item)}?`);
+
+    if (!ok) return;
+
+    try {
+      setRunningId(item.id || item.customer_id);
+
+      const id = item.customer_id || item.id;
+
+      let success = false;
+
+      const attempts = [
+        () => axios.post(`${API}/autocut/customers/${id}/restore`, {}, getHeaders()),
+        () => axios.post(`${API}/auto-cut/customers/${id}/restore`, {}, getHeaders()),
+        () => axios.post(`${API}/customers/${id}/restore-service`, {}, getHeaders()),
+        () => axios.post(`${API}/customers/${id}/activate`, {}, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento restaurar cliente falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para restaurar servicio.");
+      } else {
+        alert("Servicio restaurado.");
+        await loadDebtors();
+      }
+    } finally {
+      setRunningId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-autocut-page">
+      <section className="hsm-autocut-head">
+        <div>
+          <h2>Corte automático</h2>
+          <p>{stats.debtors} clientes con deuda</p>
+        </div>
+
+        <button onClick={runAutoCut} disabled={runningGlobal}>
+          {runningGlobal ? "Ejecutando..." : "Ejecutar"}
+        </button>
+      </section>
+
+      <section className="hsm-autocut-total">
+        <span>Deuda total</span>
+        <strong>{formatMoney(stats.totalDebt)}</strong>
+      </section>
+
+      <section className="hsm-autocut-stats">
+        <div>
+          <strong>{stats.debtors}</strong>
+          <span>Con deuda</span>
+        </div>
+
+        <div>
+          <strong>{stats.cut}</strong>
+          <span>Cortados</span>
+        </div>
+
+        <div>
+          <strong>{stats.active}</strong>
+          <span>Activos</span>
+        </div>
+      </section>
+
+      <section className="hsm-autocut-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, teléfono, dirección o usuario..."
+        />
+
+        <div className="hsm-autocut-filter">
+          <button
+            className={statusFilter === "deuda" ? "active" : ""}
+            onClick={() => setStatusFilter("deuda")}
+          >
+            Con deuda
+          </button>
+
+          <button
+            className={statusFilter === "cortados" ? "active" : ""}
+            onClick={() => setStatusFilter("cortados")}
+          >
+            Cortados
+          </button>
+
+          <button
+            className={statusFilter === "activos" ? "active" : ""}
+            onClick={() => setStatusFilter("activos")}
+          >
+            Activos
+          </button>
+
+          <button
+            className={statusFilter === "todos" ? "active" : ""}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todos
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-autocut-refresh" onClick={loadDebtors}>
+        Actualizar lista
+      </button>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando corte automático...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay clientes para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-autocut-list">
+        {filtered.map((item) => {
+          const name = getClientName(item);
+          const status = getStatus(item);
+          const debt = getDebt(item);
+          const currentId = item.id || item.customer_id;
+          const busy = runningId === currentId;
+
+          const phone =
+            item.phone ||
+            item.telefono ||
+            item.customer_phone ||
+            "-";
+
+          const plan =
+            item.plan_name ||
+            item.plan ||
+            item.service_plan ||
+            "Sin plan";
+
+          const user =
+            item.pppoe_user ||
+            item.username ||
+            item.user ||
+            "-";
+
+          const address =
+            item.address ||
+            item.direccion ||
+            item.customer_address ||
+            "-";
+
+          return (
+            <article key={currentId || name} className="hsm-autocut-card">
+              <div className="hsm-autocut-top">
+                <div className="hsm-autocut-icon">⚡</div>
+
+                <div className="hsm-autocut-main">
+                  <h3>{name}</h3>
+                  <span className={`hsm-autocut-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+
+                <strong>{formatMoney(debt)}</strong>
+              </div>
+
+              <div className="hsm-autocut-info">
+                <div>
+                  <b>Plan</b>
+                  <span>{plan}</span>
+                </div>
+
+                <div>
+                  <b>Usuario</b>
+                  <span>{user}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone}</span>
+                </div>
+
+                <div>
+                  <b>Dirección</b>
+                  <span>{address}</span>
+                </div>
+              </div>
+
+              <div className="hsm-autocut-actions">
+                <button onClick={() => cutClient(item)} disabled={busy}>
+                  {busy ? "..." : "Cortar"}
+                </button>
+
+                <button className="restore" onClick={() => restoreClient(item)} disabled={busy}>
+                  {busy ? "..." : "Restaurar"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileAutoCut;

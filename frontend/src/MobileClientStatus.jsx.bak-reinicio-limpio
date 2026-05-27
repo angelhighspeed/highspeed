@@ -1,0 +1,484 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getClientName(client) {
+  const first = client.name || client.nombre || client.first_name || "";
+  const last = client.last_name || client.apellido || "";
+
+  return (
+    client.full_name ||
+    client.customer_name ||
+    `${first} ${last}`.trim() ||
+    `Cliente #${client.id || client.customer_id || "-"}`
+  );
+}
+
+function getStatus(client) {
+  const raw = String(
+    client.status ||
+      client.estado ||
+      client.service_status ||
+      client.cut_status ||
+      ""
+  ).toLowerCase();
+
+  if (raw.includes("cort")) return "Cortado";
+  if (raw.includes("suspend")) return "Suspendido";
+  if (raw.includes("active") || raw.includes("activo")) return "Activo";
+  if (raw.includes("pending") || raw.includes("pendiente")) return "Pendiente";
+
+  return raw ? raw : "Sin estado";
+}
+
+function getOnlineStatus(client) {
+  const raw = String(
+    client.online_status ||
+      client.connection_status ||
+      client.pppoe_status ||
+      client.online ||
+      ""
+  ).toLowerCase();
+
+  if (client.online === true) return "Online";
+  if (client.is_online === true) return "Online";
+  if (raw.includes("online") || raw.includes("conect")) return "Online";
+  if (raw.includes("offline") || raw.includes("desconect")) return "Offline";
+
+  return "Sin datos";
+}
+
+function getDebt(client) {
+  return (
+    client.debt ||
+    client.total_debt ||
+    client.balance ||
+    client.amount_due ||
+    client.monto_deuda ||
+    0
+  );
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("activo")) return "ok";
+  if (s.includes("cortado") || s.includes("suspendido")) return "bad";
+  if (s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function onlineClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("online")) return "ok";
+  if (s.includes("offline")) return "bad";
+
+  return "";
+}
+
+function MobileClientStatus() {
+  const [clients, setClients] = useState([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [changingId, setChangingId] = useState(null);
+
+  const loadClients = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/customers/status`,
+        `${API}/client-status`,
+        `${API}/customers/list-all`,
+        `${API}/customers`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento estado clientes falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.customers)
+        ? res.data.customers
+        : Array.isArray(res?.data?.clients)
+        ? res.data.clients
+        : [];
+
+      setClients(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo cargar el estado de clientes.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClients();
+  }, []);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let suspendidos = 0;
+    let cortados = 0;
+    let online = 0;
+    let offline = 0;
+    let conDeuda = 0;
+
+    clients.forEach((client) => {
+      const status = getStatus(client).toLowerCase();
+      const conn = getOnlineStatus(client).toLowerCase();
+      const debt = Number(getDebt(client));
+
+      if (status.includes("activo")) activos += 1;
+      if (status.includes("suspendido")) suspendidos += 1;
+      if (status.includes("cortado")) cortados += 1;
+      if (conn.includes("online")) online += 1;
+      if (conn.includes("offline")) offline += 1;
+      if (debt > 0) conDeuda += 1;
+    });
+
+    return {
+      total: clients.length,
+      activos,
+      suspendidos,
+      cortados,
+      online,
+      offline,
+      conDeuda,
+    };
+  }, [clients]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return clients.filter((client) => {
+      const name = getClientName(client).toLowerCase();
+      const status = getStatus(client).toLowerCase();
+      const online = getOnlineStatus(client).toLowerCase();
+      const debt = Number(getDebt(client));
+
+      const text = [
+        name,
+        client.phone,
+        client.telefono,
+        client.address,
+        client.direccion,
+        client.plan_name,
+        client.plan,
+        client.pppoe_user,
+        client.username,
+        client.ip,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+
+      let matchFilter = true;
+
+      if (filter === "activos") matchFilter = status.includes("activo");
+      if (filter === "suspendidos") matchFilter = status.includes("suspendido");
+      if (filter === "cortados") matchFilter = status.includes("cortado");
+      if (filter === "online") matchFilter = online.includes("online");
+      if (filter === "offline") matchFilter = online.includes("offline");
+      if (filter === "deuda") matchFilter = debt > 0;
+
+      return matchText && matchFilter;
+    });
+  }, [clients, query, filter]);
+
+  const changeClientStatus = async (client, action) => {
+    const id = client.id || client.customer_id;
+
+    if (!id) {
+      alert("Este cliente no tiene ID.");
+      return;
+    }
+
+    const text =
+      action === "activate"
+        ? "activar"
+        : action === "suspend"
+        ? "suspender"
+        : "restaurar";
+
+    const ok = confirm(`¿Querés ${text} a ${getClientName(client)}?`);
+
+    if (!ok) return;
+
+    try {
+      setChangingId(id);
+
+      let success = false;
+
+      const attempts =
+        action === "activate"
+          ? [
+              () => axios.post(`${API}/customers/${id}/activate`, {}, getHeaders()),
+              () => axios.post(`${API}/customers/${id}/restore-service`, {}, getHeaders()),
+              () => axios.patch(`${API}/customers/${id}`, { status: "active", estado: "Activo" }, getHeaders()),
+            ]
+          : action === "suspend"
+          ? [
+              () => axios.post(`${API}/customers/${id}/suspend`, {}, getHeaders()),
+              () => axios.post(`${API}/customers/${id}/cut-service`, {}, getHeaders()),
+              () => axios.patch(`${API}/customers/${id}`, { status: "suspended", estado: "Suspendido" }, getHeaders()),
+            ]
+          : [
+              () => axios.post(`${API}/customers/${id}/restore-service`, {}, getHeaders()),
+              () => axios.post(`${API}/customers/${id}/activate`, {}, getHeaders()),
+              () => axios.patch(`${API}/customers/${id}`, { status: "active", estado: "Activo" }, getHeaders()),
+            ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento estado cliente falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para cambiar estado.");
+      } else {
+        await loadClients();
+      }
+    } finally {
+      setChangingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-client-status-page">
+      <section className="hsm-client-status-head">
+        <div>
+          <h2>Estado clientes</h2>
+          <p>{stats.total} clientes registrados</p>
+        </div>
+
+        <button onClick={loadClients}>Actualizar</button>
+      </section>
+
+      <section className="hsm-client-status-total">
+        <div>
+          <span>Online</span>
+          <strong>{stats.online}</strong>
+        </div>
+
+        <div>
+          <span>Con deuda</span>
+          <strong>{stats.conDeuda}</strong>
+        </div>
+      </section>
+
+      <section className="hsm-client-status-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.suspendidos}</strong>
+          <span>Suspendidos</span>
+        </div>
+
+        <div>
+          <strong>{stats.cortados}</strong>
+          <span>Cortados</span>
+        </div>
+      </section>
+
+      <section className="hsm-client-status-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, teléfono, IP o usuario..."
+        />
+
+        <div className="hsm-client-status-filter">
+          <button className={filter === "todos" ? "active" : ""} onClick={() => setFilter("todos")}>
+            Todos
+          </button>
+
+          <button className={filter === "activos" ? "active" : ""} onClick={() => setFilter("activos")}>
+            Activos
+          </button>
+
+          <button className={filter === "suspendidos" ? "active" : ""} onClick={() => setFilter("suspendidos")}>
+            Suspendidos
+          </button>
+
+          <button className={filter === "cortados" ? "active" : ""} onClick={() => setFilter("cortados")}>
+            Cortados
+          </button>
+
+          <button className={filter === "online" ? "active" : ""} onClick={() => setFilter("online")}>
+            Online
+          </button>
+
+          <button className={filter === "offline" ? "active" : ""} onClick={() => setFilter("offline")}>
+            Offline
+          </button>
+
+          <button className={filter === "deuda" ? "active" : ""} onClick={() => setFilter("deuda")}>
+            Deuda
+          </button>
+        </div>
+      </section>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando estado de clientes...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay clientes para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-client-status-list">
+        {filtered.map((client) => {
+          const id = client.id || client.customer_id;
+          const status = getStatus(client);
+          const conn = getOnlineStatus(client);
+          const debt = getDebt(client);
+
+          const phone =
+            client.phone ||
+            client.telefono ||
+            client.customer_phone ||
+            "-";
+
+          const plan =
+            client.plan_name ||
+            client.plan ||
+            client.service_plan ||
+            "Sin plan";
+
+          const user =
+            client.pppoe_user ||
+            client.username ||
+            client.user ||
+            "-";
+
+          const ip =
+            client.ip ||
+            client.ip_address ||
+            client.pppoe_ip ||
+            "-";
+
+          const busy = changingId === id;
+
+          return (
+            <article key={id || getClientName(client)} className="hsm-client-status-card">
+              <div className="hsm-client-status-top">
+                <div className="hsm-client-status-avatar">
+                  {getClientName(client).charAt(0).toUpperCase()}
+                </div>
+
+                <div className="hsm-client-status-main">
+                  <h3>{getClientName(client)}</h3>
+
+                  <div className="hsm-client-status-badges">
+                    <span className={`hsm-client-status-pill ${statusClass(status)}`}>
+                      {status}
+                    </span>
+
+                    <span className={`hsm-client-status-pill ${onlineClass(conn)}`}>
+                      {conn}
+                    </span>
+                  </div>
+                </div>
+
+                <strong>{formatMoney(debt)}</strong>
+              </div>
+
+              <div className="hsm-client-status-info">
+                <div>
+                  <b>Plan</b>
+                  <span>{plan}</span>
+                </div>
+
+                <div>
+                  <b>Usuario</b>
+                  <span>{user}</span>
+                </div>
+
+                <div>
+                  <b>IP</b>
+                  <span>{ip}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone}</span>
+                </div>
+              </div>
+
+              <div className="hsm-client-status-actions">
+                <button onClick={() => changeClientStatus(client, "activate")} disabled={busy}>
+                  Activar
+                </button>
+
+                <button className="warn" onClick={() => changeClientStatus(client, "suspend")} disabled={busy}>
+                  Suspender
+                </button>
+
+                <button className="ok" onClick={() => changeClientStatus(client, "restore")} disabled={busy}>
+                  Restaurar
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileClientStatus;

@@ -1,0 +1,495 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  username: "",
+  full_name: "",
+  email: "",
+  password: "",
+  role: "support",
+  active: true,
+};
+
+function getUserName(user) {
+  return (
+    user.username ||
+    user.user ||
+    user.name ||
+    user.nombre ||
+    `Usuario #${user.id || "-"}`
+  );
+}
+
+function getFullName(user) {
+  return (
+    user.full_name ||
+    user.nombre_completo ||
+    user.name ||
+    user.nombre ||
+    getUserName(user)
+  );
+}
+
+function getRole(user) {
+  const role = String(user.role || user.rol || "support").toLowerCase();
+
+  if (role.includes("admin")) return "Admin";
+  if (role.includes("tech") || role.includes("tecnico") || role.includes("técnico")) return "Técnico";
+  if (role.includes("cash") || role.includes("cajero")) return "Cajero";
+  if (role.includes("support") || role.includes("soporte")) return "Soporte";
+
+  return role;
+}
+
+function isActive(user) {
+  if (user.active === false) return false;
+  if (user.is_active === false) return false;
+  if (String(user.status || user.estado || "").toLowerCase().includes("inactivo")) return false;
+  return true;
+}
+
+function MobileUsers() {
+  const [users, setUsers] = useState([]);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [changingId, setChangingId] = useState(null);
+
+  const loadUsers = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/users`,
+        `${API}/auth/users`,
+        `${API}/system/users`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento usuarios falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      let data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.users)
+        ? res.data.users
+        : [];
+
+      if (!data.length) {
+        data = [
+          {
+            id: 1,
+            username: localStorage.getItem("username") || "admin",
+            full_name: localStorage.getItem("full_name") || "Administrador",
+            email: "",
+            role: localStorage.getItem("role") || "admin",
+            active: true,
+            is_active: true,
+            status: "active",
+          },
+        ];
+      }
+
+      setUsers(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los usuarios.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let inactivos = 0;
+    let admins = 0;
+
+    users.forEach((user) => {
+      if (isActive(user)) activos += 1;
+      else inactivos += 1;
+
+      if (getRole(user).toLowerCase().includes("admin")) admins += 1;
+    });
+
+    return {
+      total: users.length,
+      activos,
+      inactivos,
+      admins,
+    };
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return users.filter((user) => {
+      const role = getRole(user).toLowerCase();
+
+      const text = [
+        getUserName(user),
+        getFullName(user),
+        user.email,
+        role,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+      const matchRole = roleFilter === "todos" || role.includes(roleFilter);
+
+      return matchText && matchRole;
+    });
+  }, [users, query, roleFilter]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const createUser = async (e) => {
+    e.preventDefault();
+
+    if (!form.username.trim()) {
+      alert("Ingresá el usuario.");
+      return;
+    }
+
+    if (!form.password.trim()) {
+      alert("Ingresá la contraseña.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...form,
+        name: form.full_name,
+        is_active: form.active,
+        status: form.active ? "active" : "inactive",
+      };
+
+      let saved = false;
+
+      const attempts = [
+        () => axios.post(`${API}/users`, payload, getHeaders()),
+        () => axios.post(`${API}/auth/users`, payload, getHeaders()),
+        () => axios.post(`${API}/system/users`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento crear usuario falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        alert("No se encontró endpoint válido para crear usuarios.");
+        return;
+      }
+
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadUsers();
+
+      alert("Usuario creado correctamente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleUser = async (user) => {
+    const id = user.id;
+    const active = !isActive(user);
+
+    if (!id) {
+      alert("Este usuario no tiene ID.");
+      return;
+    }
+
+    try {
+      setChangingId(id);
+
+      const payload = {
+        active,
+        is_active: active,
+        status: active ? "active" : "inactive",
+      };
+
+      let saved = false;
+
+      const attempts = [
+        () => axios.patch(`${API}/users/${id}`, payload, getHeaders()),
+        () => axios.put(`${API}/users/${id}`, payload, getHeaders()),
+        () => axios.patch(`${API}/auth/users/${id}`, payload, getHeaders()),
+        () => axios.put(`${API}/auth/users/${id}`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento cambiar usuario falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        alert("No se encontró endpoint para cambiar estado.");
+        return;
+      }
+
+      await loadUsers();
+    } finally {
+      setChangingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-users-page">
+      <section className="hsm-users-head">
+        <div>
+          <h2>Usuarios</h2>
+          <p>{stats.total} usuarios del sistema</p>
+        </div>
+
+        <button onClick={() => setShowForm(true)}>+ Usuario</button>
+      </section>
+
+      <section className="hsm-users-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.inactivos}</strong>
+          <span>Inactivos</span>
+        </div>
+
+        <div>
+          <strong>{stats.admins}</strong>
+          <span>Admins</span>
+        </div>
+      </section>
+
+      <section className="hsm-users-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar usuario, email o rol..."
+        />
+
+        <div className="hsm-users-filter">
+          <button
+            className={roleFilter === "todos" ? "active" : ""}
+            onClick={() => setRoleFilter("todos")}
+          >
+            Todos
+          </button>
+
+          <button
+            className={roleFilter === "admin" ? "active" : ""}
+            onClick={() => setRoleFilter("admin")}
+          >
+            Admin
+          </button>
+
+          <button
+            className={roleFilter === "técnico" ? "active" : ""}
+            onClick={() => setRoleFilter("técnico")}
+          >
+            Técnico
+          </button>
+
+          <button
+            className={roleFilter === "cajero" ? "active" : ""}
+            onClick={() => setRoleFilter("cajero")}
+          >
+            Cajero
+          </button>
+
+          <button
+            className={roleFilter === "soporte" ? "active" : ""}
+            onClick={() => setRoleFilter("soporte")}
+          >
+            Soporte
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-users-refresh" onClick={loadUsers}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-users-form-card">
+          <div className="hsm-users-form-head">
+            <h3>Nuevo usuario</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={createUser} className="hsm-users-form">
+            <input
+              placeholder="Usuario"
+              value={form.username}
+              onChange={(e) => updateForm("username", e.target.value)}
+            />
+
+            <input
+              placeholder="Nombre completo"
+              value={form.full_name}
+              onChange={(e) => updateForm("full_name", e.target.value)}
+            />
+
+            <input
+              type="email"
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => updateForm("email", e.target.value)}
+            />
+
+            <input
+              type="password"
+              placeholder="Contraseña"
+              value={form.password}
+              onChange={(e) => updateForm("password", e.target.value)}
+            />
+
+            <select
+              value={form.role}
+              onChange={(e) => updateForm("role", e.target.value)}
+            >
+              <option value="admin">Admin</option>
+              <option value="technician">Técnico</option>
+              <option value="cashier">Cajero</option>
+              <option value="support">Soporte</option>
+            </select>
+
+            <label className="hsm-users-check">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) => updateForm("active", e.target.checked)}
+              />
+              Usuario activo
+            </label>
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Guardar usuario"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando usuarios...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredUsers.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay usuarios para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-users-list">
+        {filteredUsers.map((user) => {
+          const active = isActive(user);
+          const role = getRole(user);
+
+          return (
+            <article key={user.id || getUserName(user)} className="hsm-user-card">
+              <div className="hsm-user-top">
+                <div className="hsm-user-avatar">
+                  {getUserName(user).charAt(0).toUpperCase()}
+                </div>
+
+                <div className="hsm-user-main">
+                  <h3>{getFullName(user)}</h3>
+                  <span className={active ? "ok" : "bad"}>
+                    {active ? "Activo" : "Inactivo"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-user-info">
+                <div>
+                  <b>Usuario</b>
+                  <span>{getUserName(user)}</span>
+                </div>
+
+                <div>
+                  <b>Rol</b>
+                  <span>{role}</span>
+                </div>
+
+                <div>
+                  <b>Email</b>
+                  <span>{user.email || "-"}</span>
+                </div>
+
+                <div>
+                  <b>ID</b>
+                  <span>{user.id || "-"}</span>
+                </div>
+              </div>
+
+              <div className="hsm-user-actions">
+                <button onClick={() => toggleUser(user)} disabled={changingId === user.id}>
+                  {changingId === user.id
+                    ? "Guardando..."
+                    : active
+                    ? "Desactivar"
+                    : "Activar"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileUsers;

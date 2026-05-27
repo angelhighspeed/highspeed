@@ -1,0 +1,13 @@
+{
+  "appId": "com.highspeed.isp.final",
+  "appName": "HighSpeed ISP",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

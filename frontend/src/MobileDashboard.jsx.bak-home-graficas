@@ -1,0 +1,126 @@
+import { useState } from "react";
+import logo from "./assets/logo.png";
+import MobileOnline from "./MobileOnline";
+
+const modules = [
+  { key: "home", label: "Inicio", icon: "🏠" },
+  { key: "clients", label: "Clientes", icon: "👥" },
+  { key: "plans", label: "Planes", icon: "📶" },
+  { key: "routers", label: "Routers", icon: "📡" },
+  { key: "installations", label: "Instalaciones", icon: "🛠️" },
+  { key: "tickets", label: "Tickets", icon: "🎫" },
+  { key: "invoices", label: "Facturas", icon: "🧾" },
+  { key: "payments", label: "Pagos", icon: "💵" },
+  { key: "online", label: "Online", icon: "🟢" },
+  { key: "traffic", label: "Tráfico", icon: "📊" },
+  { key: "autocut", label: "Corte automático", icon: "⚡" },
+  { key: "backup", label: "Respaldo", icon: "💾" },
+  { key: "company", label: "Empresa", icon: "🏢" },
+];
+
+function PlaceholderView({ title }) {
+  return (
+    <div className="hsm-page">
+      <div className="hsm-card">
+        <h2>{title}</h2>
+        <p>Este módulo ya está visible en la APK. Luego conectamos su vista completa.</p>
+      </div>
+    </div>
+  );
+}
+
+function HomeView({ setSection }) {
+  return (
+    <div className="hsm-page">
+      <div className="hsm-grid">
+        {modules
+          .filter((m) => m.key !== "home")
+          .map((m) => (
+            <button
+              key={m.key}
+              className="hsm-module-card"
+              onClick={() => setSection(m.key)}
+            >
+              <div className="hsm-module-icon">{m.icon}</div>
+              <div className="hsm-module-label">{m.label}</div>
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+export default function MobileDashboard({ onLogout }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [section, setSection] = useState("home");
+
+  const current = modules.find((m) => m.key === section) || modules[0];
+
+  const goTo = (key) => {
+    setSection(key);
+    setMenuOpen(false);
+  };
+
+  const renderContent = () => {
+    if (section === "home") return <HomeView setSection={setSection} />;
+    if (section === "online") return <MobileOnline />;
+
+    const module = modules.find((m) => m.key === section);
+    return <PlaceholderView title={module?.label || "Módulo"} />;
+  };
+
+  return (
+    <div className="hsm-app">
+      <header className="hsm-topbar">
+        <button className="hsm-menu-btn" onClick={() => setMenuOpen(true)}>
+          ☰
+        </button>
+
+        <img src={logo} alt="HighSpeed" className="hsm-logo" />
+
+        <div className="hsm-title">{current.label}</div>
+      </header>
+
+      {menuOpen && (
+        <>
+          <div className="hsm-overlay" onClick={() => setMenuOpen(false)} />
+
+          <aside className="hsm-drawer">
+            <div className="hsm-drawer-head">
+              <img src={logo} alt="HighSpeed" className="hsm-drawer-logo" />
+
+              <button className="hsm-close-btn" onClick={() => setMenuOpen(false)}>
+                ✕
+              </button>
+            </div>
+
+            <nav className="hsm-nav">
+              {modules.map((m) => (
+                <button
+                  key={m.key}
+                  className={`hsm-nav-item ${section === m.key ? "active" : ""}`}
+                  onClick={() => goTo(m.key)}
+                >
+                  <span className="hsm-nav-icon">{m.icon}</span>
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </nav>
+
+            <button
+              className="hsm-logout-btn"
+              onClick={() => {
+                localStorage.clear();
+                if (onLogout) onLogout();
+              }}
+            >
+              Cerrar sesión
+            </button>
+          </aside>
+        </>
+      )}
+
+      <main className="hsm-content">{renderContent()}</main>
+    </div>
+  );
+}

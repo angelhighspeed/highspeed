@@ -406,7 +406,7 @@ def serialize_installation(installation: Installation, customer: Optional[Custom
     return {
         "id": getattr(installation, "id", None),
         "customer_id": getattr(installation, "customer_id", None),
-        "router_id": getattr(installation, "router_id", None),
+        "router_id": getattr(installation, "router_id", None) or getattr(customer, "router_id", None),
 
         "customer_name": customer_name,
         "customer_pppoe_username": (
@@ -450,8 +450,16 @@ def serialize_installation(installation: Installation, customer: Optional[Custom
         "completed_at": format_datetime(getattr(installation, "completed_at", None)),
         "cancelled_at": format_datetime(getattr(installation, "cancelled_at", None)),
 
-        "mikrotik_status": getattr(installation, "mikrotik_status", None),
-        "mikrotik_message": getattr(installation, "mikrotik_message", None),
+        "mikrotik_status": (
+            getattr(installation, "mikrotik_status", None)
+            if str(getattr(installation, "status", "")).lower() == "completed"
+            else "pending"
+        ),
+        "mikrotik_message": (
+            getattr(installation, "mikrotik_message", None)
+            if str(getattr(installation, "status", "")).lower() == "completed"
+            else "Pendiente de completar instalación"
+        ),
     }
 
 
@@ -1170,6 +1178,24 @@ def create_installation_with_customer(
             )
 
         customer_kwargs = build_customer_kwargs(data.customer)
+
+        # Una instalación nueva NO debe crear cliente activo.
+        # El cliente queda pendiente hasta completar instalación.
+        customer_columns = {column.name for column in Customer.__table__.columns}
+
+        if "status" in customer_columns:
+            customer_kwargs["status"] = "pending_installation"
+
+        if "estado" in customer_columns:
+            customer_kwargs["estado"] = "pending_installation"
+
+        # Eliminar cualquier campo que no exista en el modelo Customer.
+        customer_kwargs = {
+            key: value
+            for key, value in customer_kwargs.items()
+            if key in customer_columns
+        }
+
         customer = Customer(**customer_kwargs)
 
         db.add(customer)
@@ -1282,11 +1308,66 @@ def complete_installation(
     if hasattr(installation, "cancelled_at"):
         installation.cancelled_at = None
 
+    # Asegurar que el cliente tenga IP antes de enviarlo a MikroTik.
+    customer_ip_value = (
+        getattr(customer, "remote_address", None)
+        or getattr(customer, "ip", None)
+        or getattr(customer, "ip_address", None)
+        or getattr(customer, "pppoe_ip", None)
+    )
+
+    if customer_ip_value:
+        if hasattr(customer, "remote_address"):
+            customer.remote_address = customer_ip_value
+        if hasattr(customer, "ip"):
+            customer.ip = customer_ip_value
+        if hasattr(customer, "ip_address"):
+            customer.ip_address = customer_ip_value
+        if hasattr(customer, "pppoe_ip"):
+            customer.pppoe_ip = customer_ip_value
+
     # Al completar, también se crea/habilita el PPPoE Secret en el MikroTik.
+    final_router_id = installation_router_id or getattr(customer, "router_id", None)
+
+    # Si no viene router_id desde la APK/web, usamos el primer router cargado.
+    if not final_router_id:
+        default_router = db.query(Router).order_by(Router.id.asc()).first()
+
+        if default_router:
+            final_router_id = default_router.id
+
+            if hasattr(customer, "router_id"):
+                customer.router_id = final_router_id
+
+            if hasattr(installation, "router_id"):
+                installation.router_id = final_router_id
+
     mikrotik_result = add_customer_to_mikrotik(
         db,
         customer,
-        installation_router_id or getattr(customer, "router_id", None),
+        final_router_id,
+    )
+
+    # Guardar resultado MikroTik inmediatamente en la instalación.
+    installation.router_id = final_router_id
+    installation.mikrotik_status = mikrotik_result.get("status")
+    installation.mikrotik_message = mikrotik_result.get("message")
+
+    db.execute(
+        text("""
+            UPDATE installations
+            SET
+                router_id = :router_id,
+                mikrotik_status = :mikrotik_status,
+                mikrotik_message = :mikrotik_message
+            WHERE id = :installation_id
+        """),
+        {
+            "router_id": final_router_id,
+            "mikrotik_status": mikrotik_result.get("status"),
+            "mikrotik_message": mikrotik_result.get("message"),
+            "installation_id": installation.id,
+        },
     )
 
     if hasattr(installation, "mikrotik_status"):
@@ -1294,6 +1375,61 @@ def complete_installation(
 
     if hasattr(installation, "mikrotik_message"):
         installation.mikrotik_message = mikrotik_result.get("message")
+
+    # Guardado directo por SQL para asegurar que /installations lo muestre.
+    try:
+        db.execute(
+            text("""
+                UPDATE installations
+                SET
+                    router_id = :router_id,
+                    mikrotik_status = :mikrotik_status,
+                    mikrotik_message = :mikrotik_message
+                WHERE id = :installation_id
+            """),
+            {
+                "router_id": final_router_id,
+                "mikrotik_status": mikrotik_result.get("status"),
+                "mikrotik_message": mikrotik_result.get("message"),
+                "installation_id": installation.id,
+            },
+        )
+    except Exception as e:
+        print("No se pudo guardar estado MikroTik en installations:", e)
+
+
+    # Forzar guardado de router_id y estado MikroTik para que GET /installations lo muestre.
+    try:
+        if 'final_router_id' not in locals():
+            final_router_id = installation_router_id or getattr(customer, "router_id", None)
+
+        if hasattr(installation, "router_id"):
+            installation.router_id = final_router_id
+
+        if hasattr(installation, "mikrotik_status"):
+            installation.mikrotik_status = mikrotik_result.get("status")
+
+        if hasattr(installation, "mikrotik_message"):
+            installation.mikrotik_message = mikrotik_result.get("message")
+
+        db.execute(
+            text("""
+                UPDATE installations
+                SET
+                    router_id = :router_id,
+                    mikrotik_status = :mikrotik_status,
+                    mikrotik_message = :mikrotik_message
+                WHERE id = :installation_id
+            """),
+            {
+                "router_id": final_router_id,
+                "mikrotik_status": mikrotik_result.get("status"),
+                "mikrotik_message": mikrotik_result.get("message"),
+                "installation_id": installation.id,
+            },
+        )
+    except Exception as e:
+        print("ERROR guardando estado MikroTik en installation:", e)
 
     db.commit()
     db.refresh(installation)

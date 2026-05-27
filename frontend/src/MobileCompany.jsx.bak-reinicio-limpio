@@ -1,0 +1,324 @@
+import { useEffect, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyCompany = {
+  name: "",
+  business_name: "",
+  cuit: "",
+  phone: "",
+  whatsapp: "",
+  email: "",
+  address: "",
+  city: "",
+  province: "",
+  country: "Argentina",
+  website: "",
+  logo_url: "",
+  invoice_footer: "",
+};
+
+function normalizeCompany(data) {
+  return {
+    name: data.name || data.nombre || data.company_name || "",
+    business_name: data.business_name || data.razon_social || data.legal_name || "",
+    cuit: data.cuit || data.tax_id || data.document || "",
+    phone: data.phone || data.telefono || "",
+    whatsapp: data.whatsapp || data.mobile || "",
+    email: data.email || data.mail || "",
+    address: data.address || data.direccion || "",
+    city: data.city || data.localidad || "",
+    province: data.province || data.provincia || "",
+    country: data.country || data.pais || "Argentina",
+    website: data.website || data.web || "",
+    logo_url: data.logo_url || data.logo || "",
+    invoice_footer: data.invoice_footer || data.footer || data.footer_text || "",
+  };
+}
+
+function MobileCompany() {
+  const [company, setCompany] = useState(emptyCompany);
+  const [original, setOriginal] = useState(emptyCompany);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadCompany = async () => {
+    try {
+      setLoading(true);
+
+      let res;
+
+      const attempts = [
+        `${API}/company`,
+        `${API}/settings/company`,
+        `${API}/company-settings`,
+        `${API}/business`,
+        `${API}/settings`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento empresa falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = res?.data?.company || res?.data?.settings || res?.data || {};
+      const normalized = normalizeCompany(data);
+
+      setCompany(normalized);
+      setOriginal(normalized);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudieron cargar los datos de empresa.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCompany();
+  }, []);
+
+  const updateField = (field, value) => {
+    setCompany((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveCompany = async (e) => {
+    e.preventDefault();
+
+    if (!company.name.trim()) {
+      alert("Ingresá el nombre comercial.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...company,
+        nombre: company.name,
+        company_name: company.name,
+        razon_social: company.business_name,
+        tax_id: company.cuit,
+        telefono: company.phone,
+        direccion: company.address,
+        localidad: company.city,
+        provincia: company.province,
+        pais: company.country,
+        logo: company.logo_url,
+        footer_text: company.invoice_footer,
+      };
+
+      let saved = false;
+
+      const attempts = [
+        () => axios.put(`${API}/company`, payload, getHeaders()),
+        () => axios.post(`${API}/company`, payload, getHeaders()),
+        () => axios.put(`${API}/settings/company`, payload, getHeaders()),
+        () => axios.post(`${API}/settings/company`, payload, getHeaders()),
+        () => axios.put(`${API}/company-settings`, payload, getHeaders()),
+        () => axios.post(`${API}/company-settings`, payload, getHeaders()),
+        () => axios.put(`${API}/settings`, payload, getHeaders()),
+        () => axios.post(`${API}/settings`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento guardar empresa falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        alert("No se encontró endpoint válido para guardar empresa.");
+        return;
+      }
+
+      setOriginal(company);
+      alert("Datos de empresa guardados.");
+      await loadCompany();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changed = JSON.stringify(company) !== JSON.stringify(original);
+
+  return (
+    <div className="hsm-company-page">
+      <section className="hsm-company-head">
+        <div>
+          <h2>Empresa</h2>
+          <p>Datos usados en facturas, recibos y sistema.</p>
+        </div>
+
+        <button onClick={loadCompany}>
+          Actualizar
+        </button>
+      </section>
+
+      <section className="hsm-company-preview">
+        <div className="hsm-company-logo-box">
+          {company.logo_url ? (
+            <img src={company.logo_url} alt="Logo empresa" />
+          ) : (
+            <span>🏢</span>
+          )}
+        </div>
+
+        <div>
+          <h3>{company.name || "HighSpeed"}</h3>
+          <p>{company.business_name || "Datos de empresa"}</p>
+          <small>{company.email || company.phone || "Sin contacto"}</small>
+        </div>
+      </section>
+
+      {loading ? (
+        <div className="hsm-card">
+          <p>Cargando empresa...</p>
+        </div>
+      ) : (
+        <form onSubmit={saveCompany} className="hsm-company-form">
+          <label>
+            Nombre comercial
+            <input
+              value={company.name}
+              onChange={(e) => updateField("name", e.target.value)}
+              placeholder="HighSpeed"
+            />
+          </label>
+
+          <label>
+            Razón social
+            <input
+              value={company.business_name}
+              onChange={(e) => updateField("business_name", e.target.value)}
+              placeholder="Razón social"
+            />
+          </label>
+
+          <label>
+            CUIT / Documento fiscal
+            <input
+              value={company.cuit}
+              onChange={(e) => updateField("cuit", e.target.value)}
+              placeholder="CUIT"
+            />
+          </label>
+
+          <label>
+            Teléfono
+            <input
+              value={company.phone}
+              onChange={(e) => updateField("phone", e.target.value)}
+              placeholder="Teléfono"
+            />
+          </label>
+
+          <label>
+            WhatsApp
+            <input
+              value={company.whatsapp}
+              onChange={(e) => updateField("whatsapp", e.target.value)}
+              placeholder="WhatsApp"
+            />
+          </label>
+
+          <label>
+            Email
+            <input
+              type="email"
+              value={company.email}
+              onChange={(e) => updateField("email", e.target.value)}
+              placeholder="email@empresa.com"
+            />
+          </label>
+
+          <label>
+            Dirección
+            <input
+              value={company.address}
+              onChange={(e) => updateField("address", e.target.value)}
+              placeholder="Dirección"
+            />
+          </label>
+
+          <label>
+            Localidad
+            <input
+              value={company.city}
+              onChange={(e) => updateField("city", e.target.value)}
+              placeholder="Localidad"
+            />
+          </label>
+
+          <label>
+            Provincia
+            <input
+              value={company.province}
+              onChange={(e) => updateField("province", e.target.value)}
+              placeholder="Provincia"
+            />
+          </label>
+
+          <label>
+            País
+            <input
+              value={company.country}
+              onChange={(e) => updateField("country", e.target.value)}
+              placeholder="País"
+            />
+          </label>
+
+          <label>
+            Sitio web
+            <input
+              value={company.website}
+              onChange={(e) => updateField("website", e.target.value)}
+              placeholder="https://..."
+            />
+          </label>
+
+          <label>
+            URL del logo
+            <input
+              value={company.logo_url}
+              onChange={(e) => updateField("logo_url", e.target.value)}
+              placeholder="https://.../logo.png"
+            />
+          </label>
+
+          <label>
+            Pie de factura / recibo
+            <textarea
+              value={company.invoice_footer}
+              onChange={(e) => updateField("invoice_footer", e.target.value)}
+              placeholder="Gracias por su pago..."
+            />
+          </label>
+
+          <button type="submit" disabled={saving || !changed}>
+            {saving ? "Guardando..." : changed ? "Guardar cambios" : "Sin cambios"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export default MobileCompany;

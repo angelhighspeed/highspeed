@@ -48,7 +48,6 @@ from app.routers.billing_generate_router import router as billing_generate_route
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.dashboard_clients_router import router as dashboard_clients_router
 
-
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -56,14 +55,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://192.168.0.113:5173",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        "capacitor://localhost",
+        "http://localhost",
     ],
     allow_credentials=True,
     allow_methods=["*"],

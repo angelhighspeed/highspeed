@@ -1,0 +1,336 @@
+import { useEffect, useMemo, useState } from "react";
+import logo from "./assets/logo.png";
+import MobileOnline from "./MobileOnline";
+import MobileInstallations from "./MobileInstallations";
+import MobileTickets from "./MobileTickets";
+import MobileInvoices from "./MobileInvoices";
+import MobilePayments from "./MobilePayments";
+import MobileRouters from "./MobileRouters";
+import MobileTraffic from "./MobileTraffic";
+import MobileAutoCut from "./MobileAutoCut";
+import MobileBackup from "./MobileBackup";
+import MobileCompany from "./MobileCompany";
+import MobileUsers from "./MobileUsers";
+import MobileNotifications from "./MobileNotifications";
+import MobileClientStatus from "./MobileClientStatus";
+import MobileClients from "./MobileClients";
+import MobilePlans from "./MobilePlans";
+
+const modules = [
+  { key: "home", label: "Inicio", icon: "🏠" },
+  { key: "clients", label: "Clientes", icon: "👥" },
+  { key: "plans", label: "Planes", icon: "📶" },
+  { key: "routers", label: "Routers", icon: "📡" },
+  { key: "installations", label: "Instalaciones", icon: "🛠️" },
+  { key: "tickets", label: "Tickets", icon: "🎫" },
+  { key: "invoices", label: "Facturas", icon: "🧾" },
+  { key: "payments", label: "Pagos", icon: "💵" },
+  { key: "online", label: "Online", icon: "🟢" },
+  { key: "traffic", label: "Tráfico", icon: "📊" },
+  { key: "autocut", label: "Corte automático", icon: "⚡" },
+  { key: "backup", label: "Respaldo", icon: "💾" },
+  { key: "company", label: "Empresa", icon: "🏢" },
+  { key: "users", label: "Usuarios", icon: "👤" },
+  { key: "notifications", label: "Notificaciones", icon: "🔔" },
+  { key: "clientStatus", label: "Estado clientes", icon: "📋" },
+];
+
+function SmallMetric({ icon, value, label, trend, color = "#0ea5e9" }) {
+  return (
+    <div className="hsm-metric-mini">
+      <div className="hsm-metric-icon" style={{ background: `${color}16` }}>
+        <span>{icon}</span>
+      </div>
+      <div>
+        <strong>{value}</strong>
+        <p>{label}</p>
+        {trend ? <small style={{ color }}>{trend}</small> : null}
+      </div>
+    </div>
+  );
+}
+
+function SparkCard({ icon, value, label, color = "#0ea5e9" }) {
+  return (
+    <div className="hsm-spark-card">
+      <div className="hsm-spark-head">
+        <span style={{ background: `${color}16` }}>{icon}</span>
+        <div>
+          <strong>{value}</strong>
+          <p>{label}</p>
+        </div>
+      </div>
+
+      <svg viewBox="0 0 180 48" className="hsm-sparkline">
+        <path
+          d="M0 35 C20 10, 35 42, 52 20 C72 0, 82 45, 102 24 C122 4, 138 38, 158 18 C170 8, 176 14, 180 9"
+          fill="none"
+          stroke={color}
+          strokeWidth="4"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function TrafficChart() {
+  return (
+    <div className="hsm-chart-card">
+      <div className="hsm-section-head">
+        <h2>Tráfico general</h2>
+        <button>Últimos 7 días ▾</button>
+      </div>
+
+      <div className="hsm-legend">
+        <span><i style={{ background: "#2563eb" }} /> Subida</span>
+        <span><i style={{ background: "#22c55e" }} /> Bajada</span>
+      </div>
+
+      <svg viewBox="0 0 360 190" className="hsm-main-chart">
+        <line x1="25" y1="20" x2="25" y2="160" />
+        <line x1="25" y1="160" x2="340" y2="160" />
+
+        {[45, 80, 115, 150].map((y) => (
+          <line key={y} x1="25" y1={y} x2="340" y2={y} className="grid-line" />
+        ))}
+
+        <path
+          d="M25 118 C58 110, 65 64, 105 72 C145 80, 150 58, 185 62 C225 68, 225 102, 260 92 C295 82, 296 54, 340 70"
+          fill="none"
+          stroke="#2563eb"
+          strokeWidth="4"
+          strokeLinecap="round"
+        />
+
+        <path
+          d="M25 135 C60 145, 70 92, 110 102 C150 112, 155 85, 190 82 C225 78, 225 120, 260 112 C300 103, 300 86, 340 98"
+          fill="none"
+          stroke="#22c55e"
+          strokeWidth="4"
+          strokeLinecap="round"
+        />
+
+        {[
+          [25, 118],
+          [105, 72],
+          [185, 62],
+          [260, 92],
+          [340, 70],
+        ].map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="4" fill="#fff" stroke="#2563eb" strokeWidth="3" />
+        ))}
+
+        {[
+          [25, 135],
+          [110, 102],
+          [190, 82],
+          [260, 112],
+          [340, 98],
+        ].map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="4" fill="#fff" stroke="#22c55e" strokeWidth="3" />
+        ))}
+      </svg>
+
+      <div className="hsm-chart-days">
+        <span>18 may</span>
+        <span>19 may</span>
+        <span>20 may</span>
+        <span>21 may</span>
+        <span>24 may</span>
+      </div>
+    </div>
+  );
+}
+
+function ClientStatusChart() {
+  return (
+    <div className="hsm-status-card">
+      <div className="hsm-section-head">
+        <h2>Estado de clientes</h2>
+        <button>⋮</button>
+      </div>
+
+      <div className="hsm-status-body">
+        <div className="hsm-donut">
+          <svg viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="44" fill="none" stroke="#e5e7eb" strokeWidth="22" />
+            <circle
+              cx="60"
+              cy="60"
+              r="44"
+              fill="none"
+              stroke="#2563eb"
+              strokeWidth="22"
+              strokeDasharray="203 276"
+              strokeDashoffset="0"
+              transform="rotate(-90 60 60)"
+            />
+            <circle
+              cx="60"
+              cy="60"
+              r="44"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="22"
+              strokeDasharray="47 276"
+              strokeDashoffset="-203"
+              transform="rotate(-90 60 60)"
+            />
+            <circle
+              cx="60"
+              cy="60"
+              r="44"
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="22"
+              strokeDasharray="26 276"
+              strokeDashoffset="-250"
+              transform="rotate(-90 60 60)"
+            />
+            <text x="60" y="58" textAnchor="middle" fontSize="18" fontWeight="900" fill="#0f172a">2</text>
+            <text x="60" y="76" textAnchor="middle" fontSize="11" fill="#64748b">Total</text>
+          </svg>
+        </div>
+
+        <div className="hsm-status-list">
+          <div><i style={{ background: "#2563eb" }} /> Activos <b>1</b></div>
+          <div><i style={{ background: "#f59e0b" }} /> Suspendidos <b>1</b></div>
+          <div><i style={{ background: "#ef4444" }} /> Pendientes <b>0</b></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeView() {
+  return (
+    <div className="hsm-home-dashboard">
+      <div className="hsm-summary-card">
+        <div className="hsm-section-head">
+          <h2>Resumen general</h2>
+          <button>Hoy ▾</button>
+        </div>
+
+        <div className="hsm-summary-grid">
+          <SmallMetric icon="👥" value="1" label="Clientes activos" trend="↑ 5.2%" color="#2563eb" />
+          <SmallMetric icon="📡" value="768" label="PPPoE online" trend="↑ 3.8%" color="#22c55e" />
+          <SmallMetric icon="🎫" value="0" label="Tickets abiertos" trend="↓ 7.1%" color="#ef4444" />
+          <SmallMetric icon="🧾" value="1" label="Facturas vencidas" trend="↑ 12.5%" color="#0ea5e9" />
+        </div>
+      </div>
+
+      <TrafficChart />
+      <ClientStatusChart />
+
+      <div className="hsm-spark-grid">
+        <SparkCard icon="👥" value="1" label="Clientes activos" color="#2563eb" />
+        <SparkCard icon="🧾" value="1" label="Facturas vencidas" color="#ef4444" />
+        <SparkCard icon="🎫" value="0" label="Tickets abiertos" color="#22c55e" />
+      </div>
+    </div>
+  );
+}
+
+function PlaceholderView({ title }) {
+  return (
+    <div className="hsm-page">
+      <div className="hsm-card">
+        <h2>{title}</h2>
+        <p>Este módulo ya está visible en la APK. Luego conectamos su vista completa.</p>
+      </div>
+    </div>
+  );
+}
+
+export default function MobileDashboard({ onLogout }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [section, setSection] = useState("home");
+
+  const current = useMemo(
+    () => modules.find((m) => m.key === section) || modules[0],
+    [section]
+  );
+
+  const goTo = (key) => {
+    setSection(key);
+    setMenuOpen(false);
+  };
+
+  const renderContent = () => {
+    if (section === "home") return <HomeView />;
+    if (section === "clients") return <MobileClients />;
+    if (section === "plans") return <MobilePlans />;
+    if (section === "installations") return <MobileInstallations />;
+    if (section === "tickets") return <MobileTickets />;
+    if (section === "invoices") return <MobileInvoices />;
+    if (section === "payments") return <MobilePayments />;
+    if (section === "routers") return <MobileRouters />;
+    if (section === "traffic") return <MobileTraffic />;
+    if (section === "autocut") return <MobileAutoCut />;
+    if (section === "backup") return <MobileBackup />;
+    if (section === "company") return <MobileCompany />;
+    if (section === "users") return <MobileUsers />;
+    if (section === "notifications") return <MobileNotifications />;
+    if (section === "clientStatus") return <MobileClientStatus />;
+    if (section === "online") return <MobileOnline />;
+
+    const module = modules.find((m) => m.key === section);
+    return <PlaceholderView title={module?.label || "Módulo"} />;
+  };
+
+  return (
+    <div className="hsm-app">
+      <header className="hsm-topbar">
+        <button className="hsm-menu-btn" onClick={() => setMenuOpen(true)}>
+          ☰
+        </button>
+
+        <img src={logo} alt="HighSpeed" className="hsm-logo" />
+
+        <div className="hsm-title">{current.label}</div>
+      </header>
+
+      {menuOpen && (
+        <>
+          <div className="hsm-overlay" onClick={() => setMenuOpen(false)} />
+
+          <aside className="hsm-drawer">
+            <div className="hsm-drawer-head">
+              <img src={logo} alt="HighSpeed" className="hsm-drawer-logo" />
+
+              <button className="hsm-close-btn" onClick={() => setMenuOpen(false)}>
+                ✕
+              </button>
+            </div>
+
+            <nav className="hsm-nav">
+              {modules.map((m) => (
+                <button
+                  key={m.key}
+                  className={`hsm-nav-item ${section === m.key ? "active" : ""}`}
+                  onClick={() => goTo(m.key)}
+                >
+                  <span className="hsm-nav-icon">{m.icon}</span>
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </nav>
+
+            <button
+              className="hsm-logout-btn"
+              onClick={() => {
+                localStorage.clear();
+                if (onLogout) onLogout();
+              }}
+            >
+              Cerrar sesión
+            </button>
+          </aside>
+        </>
+      )}
+
+      <main className="hsm-content">{renderContent()}</main>
+    </div>
+  );
+}

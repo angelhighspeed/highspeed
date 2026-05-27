@@ -1,0 +1,596 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  id: null,
+  name: "",
+  router_id: "",
+  cidr: "",
+  start_ip: "",
+  end_ip: "",
+  gateway: "",
+  dns: "",
+  vlan: "",
+  description: "",
+  active: true,
+};
+
+function getRangeName(item) {
+  return (
+    item.name ||
+    item.nombre ||
+    item.pool ||
+    item.range ||
+    item.cidr ||
+    `Rango #${item.id || "-"}`
+  );
+}
+
+function getRouterLabel(router) {
+  const name = router.name || router.nombre || router.router_name || `Router #${router.id}`;
+  const ip = router.host || router.ip || router.ip_address || router.address || "";
+  return ip ? `${name} - ${ip}` : name;
+}
+
+function getRangeNetwork(item) {
+  return item.cidr || item.network || item.subnet || item.range || "-";
+}
+
+function getStartIp(item) {
+  return item.start_ip || item.first_ip || item.ip_start || item.from_ip || "-";
+}
+
+function getEndIp(item) {
+  return item.end_ip || item.last_ip || item.ip_end || item.to_ip || "-";
+}
+
+function getGateway(item) {
+  return item.gateway || item.gw || "-";
+}
+
+function isActive(item) {
+  if (item.active === false) return false;
+  if (item.is_active === false) return false;
+  if (String(item.status || item.estado || "").toLowerCase().includes("inactivo")) return false;
+  return true;
+}
+
+function rangeToForm(item) {
+  return {
+    id: item.id || null,
+    name: item.name || item.nombre || item.pool || "",
+    router_id: item.router_id || "",
+    cidr: item.cidr || item.network || item.subnet || item.range || "",
+    start_ip: item.start_ip || item.first_ip || item.ip_start || item.from_ip || "",
+    end_ip: item.end_ip || item.last_ip || item.ip_end || item.to_ip || "",
+    gateway: item.gateway || item.gw || "",
+    dns: item.dns || item.dns_servers || "",
+    vlan: item.vlan || item.vlan_id || "",
+    description: item.description || item.descripcion || "",
+    active: isActive(item),
+  };
+}
+
+function MobileIpRanges() {
+  const [ranges, setRanges] = useState([]);
+  const [routers, setRouters] = useState([]);
+  const [query, setQuery] = useState("");
+  const [routerFilter, setRouterFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const loadRouters = async () => {
+    try {
+      const res = await axios.get(`${API}/routers`, getHeaders());
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.routers)
+        ? res.data.routers
+        : [];
+
+      setRouters(data);
+    } catch (err) {
+      console.warn("No se pudieron cargar routers:", err);
+      setRouters([]);
+    }
+  };
+
+  const loadRanges = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/ip-ranges`,
+        `${API}/ip-pools`,
+        `${API}/network/ip-ranges`,
+        `${API}/network/ip-pools`,
+        `${API}/routers/ip-ranges`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento rangos IP falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.ranges)
+        ? res.data.ranges
+        : Array.isArray(res?.data?.pools)
+        ? res.data.pools
+        : [];
+
+      setRanges(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los rangos IP.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRouters();
+    loadRanges();
+  }, []);
+
+  const routerMap = useMemo(() => {
+    const map = new Map();
+
+    routers.forEach((router) => {
+      map.set(String(router.id), getRouterLabel(router));
+    });
+
+    return map;
+  }, [routers]);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let inactivos = 0;
+
+    ranges.forEach((item) => {
+      if (isActive(item)) activos += 1;
+      else inactivos += 1;
+    });
+
+    return {
+      total: ranges.length,
+      activos,
+      inactivos,
+    };
+  }, [ranges]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return ranges.filter((item) => {
+      const routerId = String(item.router_id || "");
+      const routerName = routerMap.get(routerId) || "";
+
+      const text = [
+        getRangeName(item),
+        getRangeNetwork(item),
+        getStartIp(item),
+        getEndIp(item),
+        getGateway(item),
+        item.dns,
+        item.vlan,
+        item.description,
+        routerName,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+      const matchRouter = routerFilter === "todos" || routerId === String(routerFilter);
+
+      return matchText && matchRouter;
+    });
+  }, [ranges, query, routerFilter, routerMap]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openNew = () => {
+    setForm(emptyForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (item) => {
+    setForm(rangeToForm(item));
+    setShowForm(true);
+  };
+
+  const saveRange = async (e) => {
+    e.preventDefault();
+
+    if (!form.name.trim()) {
+      alert("Ingresá el nombre del rango o pool.");
+      return;
+    }
+
+    if (!form.router_id) {
+      alert("Seleccioná un router.");
+      return;
+    }
+
+    if (!form.cidr.trim() && (!form.start_ip.trim() || !form.end_ip.trim())) {
+      alert("Ingresá CIDR o IP inicial/final.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...form,
+        nombre: form.name,
+        pool: form.name,
+        network: form.cidr,
+        subnet: form.cidr,
+        first_ip: form.start_ip,
+        last_ip: form.end_ip,
+        ip_start: form.start_ip,
+        ip_end: form.end_ip,
+        gw: form.gateway,
+        vlan_id: form.vlan,
+        is_active: form.active,
+        status: form.active ? "active" : "inactive",
+        router_id: Number(form.router_id),
+      };
+
+      let saved = false;
+
+      if (form.id) {
+        const attempts = [
+          () => axios.put(`${API}/ip-ranges/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/ip-ranges/${form.id}`, payload, getHeaders()),
+          () => axios.put(`${API}/ip-pools/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/ip-pools/${form.id}`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento editar rango falló:", err?.response?.status || err?.message);
+          }
+        }
+      } else {
+        const attempts = [
+          () => axios.post(`${API}/ip-ranges`, payload, getHeaders()),
+          () => axios.post(`${API}/ip-pools`, payload, getHeaders()),
+          () => axios.post(`${API}/network/ip-ranges`, payload, getHeaders()),
+          () => axios.post(`${API}/network/ip-pools`, payload, getHeaders()),
+          () => axios.post(`${API}/routers/${form.router_id}/ip-ranges`, payload, getHeaders()),
+          () => axios.post(`${API}/routers/${form.router_id}/ip-pools`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento crear rango falló:", err?.response?.status || err?.message);
+          }
+        }
+      }
+
+      if (!saved) {
+        throw new Error("No se encontró endpoint válido para rangos IP.");
+      }
+
+      setShowForm(false);
+      setForm(emptyForm);
+      await loadRanges();
+
+      alert(form.id ? "Rango actualizado correctamente." : "Rango creado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo guardar el rango IP. Revisá el endpoint del backend.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteRange = async (item) => {
+    const id = item.id;
+
+    if (!id) {
+      alert("Este rango no tiene ID.");
+      return;
+    }
+
+    const ok = confirm(`¿Eliminar ${getRangeName(item)}?`);
+
+    if (!ok) return;
+
+    try {
+      setDeletingId(id);
+
+      let deleted = false;
+
+      const attempts = [
+        () => axios.delete(`${API}/ip-ranges/${id}`, getHeaders()),
+        () => axios.delete(`${API}/ip-pools/${id}`, getHeaders()),
+        () => axios.delete(`${API}/network/ip-ranges/${id}`, getHeaders()),
+        () => axios.delete(`${API}/network/ip-pools/${id}`, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          deleted = true;
+          break;
+        } catch (err) {
+          console.warn("Intento eliminar rango falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!deleted) {
+        alert("No se encontró endpoint para eliminar rango.");
+        return;
+      }
+
+      await loadRanges();
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-ipranges-page">
+      <section className="hsm-ipranges-head">
+        <div>
+          <h2>Rangos IP</h2>
+          <p>{stats.total} rangos / pools cargados</p>
+        </div>
+
+        <button onClick={openNew}>+ Rango</button>
+      </section>
+
+      <section className="hsm-ipranges-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.inactivos}</strong>
+          <span>Inactivos</span>
+        </div>
+
+        <div>
+          <strong>{routers.length}</strong>
+          <span>Routers</span>
+        </div>
+      </section>
+
+      <section className="hsm-ipranges-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar rango, pool, red, gateway..."
+        />
+
+        <select
+          value={routerFilter}
+          onChange={(e) => setRouterFilter(e.target.value)}
+        >
+          <option value="todos">Todos los routers</option>
+          {routers.map((router) => (
+            <option key={router.id} value={router.id}>
+              {getRouterLabel(router)}
+            </option>
+          ))}
+        </select>
+      </section>
+
+      <button className="hsm-ipranges-refresh" onClick={loadRanges}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-ipranges-form-card">
+          <div className="hsm-ipranges-form-head">
+            <h3>{form.id ? "Editar rango IP" : "Nuevo rango IP"}</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={saveRange} className="hsm-ipranges-form">
+            <input
+              placeholder="Nombre del pool / rango"
+              value={form.name}
+              onChange={(e) => updateForm("name", e.target.value)}
+            />
+
+            <select
+              value={form.router_id}
+              onChange={(e) => updateForm("router_id", e.target.value)}
+            >
+              <option value="">Seleccionar router</option>
+              {routers.map((router) => (
+                <option key={router.id} value={router.id}>
+                  {getRouterLabel(router)}
+                </option>
+              ))}
+            </select>
+
+            <input
+              placeholder="Red / CIDR ej: 192.168.10.0/24"
+              value={form.cidr}
+              onChange={(e) => updateForm("cidr", e.target.value)}
+            />
+
+            <input
+              placeholder="IP inicial ej: 192.168.10.2"
+              value={form.start_ip}
+              onChange={(e) => updateForm("start_ip", e.target.value)}
+            />
+
+            <input
+              placeholder="IP final ej: 192.168.10.254"
+              value={form.end_ip}
+              onChange={(e) => updateForm("end_ip", e.target.value)}
+            />
+
+            <input
+              placeholder="Gateway ej: 192.168.10.1"
+              value={form.gateway}
+              onChange={(e) => updateForm("gateway", e.target.value)}
+            />
+
+            <input
+              placeholder="DNS ej: 8.8.8.8,1.1.1.1"
+              value={form.dns}
+              onChange={(e) => updateForm("dns", e.target.value)}
+            />
+
+            <input
+              placeholder="VLAN"
+              value={form.vlan}
+              onChange={(e) => updateForm("vlan", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Descripción"
+              value={form.description}
+              onChange={(e) => updateForm("description", e.target.value)}
+            />
+
+            <label className="hsm-ipranges-check">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) => updateForm("active", e.target.checked)}
+              />
+              Rango activo
+            </label>
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : form.id ? "Guardar cambios" : "Crear rango"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando rangos IP...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay rangos IP para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-ipranges-list">
+        {filtered.map((item, index) => {
+          const active = isActive(item);
+          const id = item.id || index;
+          const routerName = routerMap.get(String(item.router_id || "")) || `Router #${item.router_id || "-"}`;
+
+          return (
+            <article key={id} className="hsm-iprange-card">
+              <div className="hsm-iprange-top">
+                <div className="hsm-iprange-icon">🌐</div>
+
+                <div className="hsm-iprange-main">
+                  <h3>{getRangeName(item)}</h3>
+                  <span className={active ? "ok" : "bad"}>
+                    {active ? "Activo" : "Inactivo"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-iprange-info">
+                <div>
+                  <b>Router</b>
+                  <span>{routerName}</span>
+                </div>
+
+                <div>
+                  <b>Red / CIDR</b>
+                  <span>{getRangeNetwork(item)}</span>
+                </div>
+
+                <div>
+                  <b>IP inicial</b>
+                  <span>{getStartIp(item)}</span>
+                </div>
+
+                <div>
+                  <b>IP final</b>
+                  <span>{getEndIp(item)}</span>
+                </div>
+
+                <div>
+                  <b>Gateway</b>
+                  <span>{getGateway(item)}</span>
+                </div>
+
+                <div>
+                  <b>VLAN</b>
+                  <span>{item.vlan || item.vlan_id || "-"}</span>
+                </div>
+              </div>
+
+              <div className="hsm-iprange-actions">
+                <button onClick={() => openEdit(item)}>Editar</button>
+
+                <button
+                  className="danger"
+                  onClick={() => deleteRange(item)}
+                  disabled={deletingId === item.id}
+                >
+                  {deletingId === item.id ? "Eliminando..." : "Eliminar"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileIpRanges;

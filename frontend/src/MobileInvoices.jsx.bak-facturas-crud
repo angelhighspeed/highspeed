@@ -1,0 +1,614 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function getStatus(invoice) {
+  const raw = String(
+    invoice.status ||
+      invoice.estado ||
+      invoice.payment_status ||
+      ""
+  ).toLowerCase();
+
+  if (raw.includes("paid") || raw.includes("pagada")) return "Pagada";
+  if (raw.includes("overdue") || raw.includes("vencida")) return "Vencida";
+  if (raw.includes("pending") || raw.includes("pendiente")) return "Pendiente";
+
+  return raw ? raw : "Pendiente";
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("pagada")) return "ok";
+  if (s.includes("vencida")) return "bad";
+  if (s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getCustomerName(invoice) {
+  return (
+    invoice.customer_name ||
+    invoice.client_name ||
+    invoice.customer_full_name ||
+    invoice.full_name ||
+    invoice.customer?.name ||
+    `Cliente #${invoice.customer_id || "-"}`
+  );
+}
+
+function getPromiseDate(invoice) {
+  return (
+    invoice.promise_date ||
+    invoice.payment_promise_date ||
+    invoice.promise_payment_date ||
+    invoice.promised_payment_date ||
+    invoice.fecha_promesa ||
+    invoice.fecha_promesa_pago ||
+    invoice.promise?.date ||
+    invoice.promise?.promise_date ||
+    ""
+  );
+}
+
+function getPromiseAmount(invoice) {
+  return (
+    invoice.promise_amount ||
+    invoice.payment_promise_amount ||
+    invoice.promised_amount ||
+    invoice.monto_promesa ||
+    invoice.promise?.amount ||
+    ""
+  );
+}
+
+function getPromiseNote(invoice) {
+  return (
+    invoice.promise_note ||
+    invoice.payment_promise_note ||
+    invoice.promise_observation ||
+    invoice.promise_comment ||
+    invoice.observacion_promesa ||
+    invoice.promise?.note ||
+    invoice.promise?.comment ||
+    ""
+  );
+}
+
+function hasPromise(invoice) {
+  return Boolean(getPromiseDate(invoice) || getPromiseAmount(invoice) || getPromiseNote(invoice));
+}
+
+function MobileInvoices() {
+  const [invoices, setInvoices] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pendiente");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [payingId, setPayingId] = useState(null);
+
+  const [expandedId, setExpandedId] = useState(null);
+  const [promiseInvoice, setPromiseInvoice] = useState(null);
+  const [promiseSaving, setPromiseSaving] = useState(false);
+  const [promiseForm, setPromiseForm] = useState({
+    promise_date: "",
+    amount: "",
+    note: "",
+  });
+
+  const loadInvoices = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      try {
+        res = await axios.get(`${API}/invoice-promises/invoices`, getHeaders());
+      } catch {
+        res = await axios.get(`${API}/invoices`, getHeaders());
+      }
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.invoices)
+        ? res.data.invoices
+        : [];
+
+      setInvoices(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar las facturas.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInvoices();
+  }, []);
+
+  const stats = useMemo(() => {
+    let pendientes = 0;
+    let pagadas = 0;
+    let vencidas = 0;
+    let conPromesa = 0;
+    let totalPendiente = 0;
+
+    invoices.forEach((invoice) => {
+      const status = getStatus(invoice);
+      const amount = Number(invoice.amount || invoice.total || invoice.price || 0);
+
+      if (hasPromise(invoice)) conPromesa += 1;
+
+      if (status === "Pagada") {
+        pagadas += 1;
+      } else if (status === "Vencida") {
+        vencidas += 1;
+        totalPendiente += amount;
+      } else {
+        pendientes += 1;
+        totalPendiente += amount;
+      }
+    });
+
+    return {
+      total: invoices.length,
+      pendientes,
+      pagadas,
+      vencidas,
+      conPromesa,
+      totalPendiente,
+    };
+  }, [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return invoices.filter((invoice) => {
+      const status = getStatus(invoice).toLowerCase();
+      const customer = getCustomerName(invoice).toLowerCase();
+      const promiseDate = getPromiseDate(invoice).toLowerCase();
+
+      const text = [
+        customer,
+        invoice.id,
+        invoice.customer_id,
+        invoice.due_date,
+        invoice.period,
+        invoice.description,
+        invoice.phone,
+        invoice.customer_phone,
+        promiseDate,
+        getPromiseNote(invoice),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+
+      let matchStatus = true;
+
+      if (statusFilter === "promesa") {
+        matchStatus = hasPromise(invoice);
+      } else if (statusFilter !== "todas") {
+        matchStatus = status.includes(statusFilter);
+      }
+
+      return matchText && matchStatus;
+    });
+  }, [invoices, query, statusFilter]);
+
+  const markAsPaid = async (invoice) => {
+    const ok = confirm("¿Registrar esta factura como pagada?");
+
+    if (!ok) return;
+
+    try {
+      setPayingId(invoice.id);
+
+      const payload = {
+        status: "paid",
+        payment_status: "paid",
+      };
+
+      try {
+        await axios.put(`${API}/invoices/${invoice.id}`, payload, getHeaders());
+      } catch {
+        await axios.patch(`${API}/invoices/${invoice.id}`, payload, getHeaders());
+      }
+
+      await loadInvoices();
+      alert("Pago registrado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar el pago.");
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  const openPromiseForm = (invoice) => {
+    setPromiseInvoice(invoice);
+    setPromiseForm({
+      promise_date: getPromiseDate(invoice) || "",
+      amount: getPromiseAmount(invoice) || invoice.amount || "",
+      note: getPromiseNote(invoice) || "",
+    });
+  };
+
+  const savePromise = async (e) => {
+    e.preventDefault();
+
+    if (!promiseInvoice) return;
+
+    if (!promiseForm.promise_date) {
+      alert("Ingresá la fecha de promesa.");
+      return;
+    }
+
+    try {
+      setPromiseSaving(true);
+
+      const payload = {
+        invoice_id: promiseInvoice.id,
+        customer_id: promiseInvoice.customer_id,
+        promise_date: promiseForm.promise_date,
+        payment_promise_date: promiseForm.promise_date,
+        amount: promiseForm.amount ? Number(promiseForm.amount) : null,
+        promise_amount: promiseForm.amount ? Number(promiseForm.amount) : null,
+        note: promiseForm.note,
+        promise_note: promiseForm.note,
+        status: "promise",
+      };
+
+      let saved = false;
+
+      const attempts = [
+        () => axios.post(`${API}/invoice-promises`, payload, getHeaders()),
+        () => axios.post(`${API}/invoice-promises/`, payload, getHeaders()),
+        () => axios.post(`${API}/invoice-promises/${promiseInvoice.id}`, payload, getHeaders()),
+        () => axios.post(`${API}/invoices/${promiseInvoice.id}/promise`, payload, getHeaders()),
+        () => axios.patch(`${API}/invoices/${promiseInvoice.id}`, payload, getHeaders()),
+        () => axios.put(`${API}/invoices/${promiseInvoice.id}`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento promesa falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        throw new Error("No se encontró endpoint válido para promesa de pago.");
+      }
+
+      setPromiseInvoice(null);
+      setPromiseForm({
+        promise_date: "",
+        amount: "",
+        note: "",
+      });
+
+      await loadInvoices();
+      alert("Promesa de pago registrada.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo guardar la promesa. Revisá el endpoint del backend.");
+    } finally {
+      setPromiseSaving(false);
+    }
+  };
+
+  return (
+    <div className="hsm-invoice-page">
+      <section className="hsm-invoice-head">
+        <div>
+          <h2>Facturas</h2>
+          <p>{stats.pendientes} pendientes · {stats.vencidas} vencidas</p>
+        </div>
+
+        <button onClick={loadInvoices}>Actualizar</button>
+      </section>
+
+      <section className="hsm-invoice-total">
+        <span>Total pendiente</span>
+        <strong>{formatMoney(stats.totalPendiente)}</strong>
+      </section>
+
+      <section className="hsm-invoice-stats">
+        <div>
+          <strong>{stats.pendientes}</strong>
+          <span>Pendientes</span>
+        </div>
+
+        <div>
+          <strong>{stats.vencidas}</strong>
+          <span>Vencidas</span>
+        </div>
+
+        <div>
+          <strong>{stats.conPromesa}</strong>
+          <span>Promesas</span>
+        </div>
+      </section>
+
+      <section className="hsm-invoice-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, factura, teléfono o promesa..."
+        />
+
+        <div className="hsm-invoice-filter">
+          <button
+            className={statusFilter === "pendiente" ? "active" : ""}
+            onClick={() => setStatusFilter("pendiente")}
+          >
+            Pendientes
+          </button>
+
+          <button
+            className={statusFilter === "vencida" ? "active" : ""}
+            onClick={() => setStatusFilter("vencida")}
+          >
+            Vencidas
+          </button>
+
+          <button
+            className={statusFilter === "promesa" ? "active" : ""}
+            onClick={() => setStatusFilter("promesa")}
+          >
+            Promesas
+          </button>
+
+          <button
+            className={statusFilter === "pagada" ? "active" : ""}
+            onClick={() => setStatusFilter("pagada")}
+          >
+            Pagadas
+          </button>
+
+          <button
+            className={statusFilter === "todas" ? "active" : ""}
+            onClick={() => setStatusFilter("todas")}
+          >
+            Todas
+          </button>
+        </div>
+      </section>
+
+      {promiseInvoice && (
+        <section className="hsm-promise-card">
+          <div className="hsm-promise-head">
+            <div>
+              <h3>Promesa de pago</h3>
+              <p>{getCustomerName(promiseInvoice)}</p>
+            </div>
+
+            <button onClick={() => setPromiseInvoice(null)}>×</button>
+          </div>
+
+          <form onSubmit={savePromise} className="hsm-promise-form">
+            <label>
+              Fecha prometida
+              <input
+                type="date"
+                value={promiseForm.promise_date}
+                onChange={(e) =>
+                  setPromiseForm((prev) => ({
+                    ...prev,
+                    promise_date: e.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              Monto prometido
+              <input
+                type="number"
+                value={promiseForm.amount}
+                onChange={(e) =>
+                  setPromiseForm((prev) => ({
+                    ...prev,
+                    amount: e.target.value,
+                  }))
+                }
+                placeholder="Monto"
+              />
+            </label>
+
+            <label>
+              Observación
+              <textarea
+                value={promiseForm.note}
+                onChange={(e) =>
+                  setPromiseForm((prev) => ({
+                    ...prev,
+                    note: e.target.value,
+                  }))
+                }
+                placeholder="Ej: paga el viernes por transferencia"
+              />
+            </label>
+
+            <button type="submit" disabled={promiseSaving}>
+              {promiseSaving ? "Guardando..." : "Guardar promesa"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando facturas...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredInvoices.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay facturas para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-invoice-list">
+        {filteredInvoices.map((invoice) => {
+          const status = getStatus(invoice);
+          const amount = invoice.amount || invoice.total || invoice.price || 0;
+          const promiseDate = getPromiseDate(invoice);
+          const promiseAmount = getPromiseAmount(invoice);
+          const promiseNote = getPromiseNote(invoice);
+          const expanded = expandedId === invoice.id;
+
+          const phone =
+            invoice.customer_phone ||
+            invoice.phone ||
+            invoice.telefono ||
+            invoice.customer?.phone ||
+            "-";
+
+          return (
+            <article key={invoice.id} className="hsm-invoice-card">
+              <div className="hsm-invoice-top">
+                <div className="hsm-invoice-icon">🧾</div>
+
+                <div className="hsm-invoice-main">
+                  <h3>{getCustomerName(invoice)}</h3>
+                  <div className="hsm-invoice-badges">
+                    <span className={`hsm-invoice-status ${statusClass(status)}`}>
+                      {status}
+                    </span>
+
+                    {hasPromise(invoice) && (
+                      <span className="hsm-promise-badge">
+                        Promesa
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <strong>{formatMoney(amount)}</strong>
+              </div>
+
+              {hasPromise(invoice) && (
+                <div className="hsm-promise-summary">
+                  <b>Promesa:</b>{" "}
+                  {promiseDate || "Sin fecha"}
+                  {promiseAmount ? ` · ${formatMoney(promiseAmount)}` : ""}
+                </div>
+              )}
+
+              <div className="hsm-invoice-info">
+                <div>
+                  <b>Factura</b>
+                  <span>#{invoice.id}</span>
+                </div>
+
+                <div>
+                  <b>Vencimiento</b>
+                  <span>{invoice.due_date || invoice.vencimiento || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Período</b>
+                  <span>{invoice.period || invoice.periodo || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone}</span>
+                </div>
+              </div>
+
+              {expanded && (
+                <div className="hsm-invoice-details">
+                  <div>
+                    <b>Cliente ID</b>
+                    <span>{invoice.customer_id || "-"}</span>
+                  </div>
+
+                  <div>
+                    <b>Descripción</b>
+                    <span>{invoice.description || invoice.descripcion || "-"}</span>
+                  </div>
+
+                  <div>
+                    <b>Fecha promesa</b>
+                    <span>{promiseDate || "Sin promesa"}</span>
+                  </div>
+
+                  <div>
+                    <b>Monto promesa</b>
+                    <span>{promiseAmount ? formatMoney(promiseAmount) : "-"}</span>
+                  </div>
+
+                  <div className="full">
+                    <b>Nota promesa</b>
+                    <span>{promiseNote || "-"}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="hsm-invoice-actions">
+                <button onClick={() => setExpandedId(expanded ? null : invoice.id)}>
+                  {expanded ? "Ocultar" : "Detalles"}
+                </button>
+
+                {status !== "Pagada" && (
+                  <button onClick={() => openPromiseForm(invoice)}>
+                    Promesa
+                  </button>
+                )}
+
+                {status !== "Pagada" && (
+                  <button
+                    className="pay"
+                    onClick={() => markAsPaid(invoice)}
+                    disabled={payingId === invoice.id}
+                  >
+                    {payingId === invoice.id ? "..." : "Pagar"}
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileInvoices;

@@ -1,0 +1,342 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function getCustomerName(item) {
+  const first =
+    item.customer_name ||
+    item.name ||
+    item.nombre ||
+    item.client_name ||
+    "";
+
+  const last =
+    item.customer_last_name ||
+    item.last_name ||
+    item.apellido ||
+    "";
+
+  const full = `${first} ${last}`.trim();
+
+  return (
+    item.full_name ||
+    item.customer_full_name ||
+    item.client_full_name ||
+    full ||
+    `Instalación #${item.id}`
+  );
+}
+
+function getStatus(item) {
+  return (
+    item.installation_status ||
+    item.status ||
+    item.estado ||
+    "Sin estado"
+  );
+}
+
+function statusClass(status) {
+  const s = String(status).toLowerCase();
+
+  if (s.includes("instalada") || s.includes("complet")) return "ok";
+  if (s.includes("programada") || s.includes("agendada")) return "info";
+  if (s.includes("cancel")) return "bad";
+  if (s.includes("nueva") || s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function MobileInstallations() {
+  const [installations, setInstallations] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadInstallations = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await axios.get(`${API}/installations`, getHeaders());
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.installations)
+        ? res.data.installations
+        : [];
+
+      setInstallations(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar las instalaciones.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInstallations();
+  }, []);
+
+  const stats = useMemo(() => {
+    let nuevas = 0;
+    let programadas = 0;
+    let instaladas = 0;
+
+    installations.forEach((item) => {
+      const s = getStatus(item).toLowerCase();
+
+      if (s.includes("instalada") || s.includes("complet")) instaladas += 1;
+      else if (s.includes("programada") || s.includes("agendada")) programadas += 1;
+      else nuevas += 1;
+    });
+
+    return {
+      total: installations.length,
+      nuevas,
+      programadas,
+      instaladas,
+    };
+  }, [installations]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return installations.filter((item) => {
+      const name = getCustomerName(item).toLowerCase();
+
+      const address = String(
+        item.customer_address ||
+          item.address ||
+          item.direccion ||
+          item.client_address ||
+          ""
+      ).toLowerCase();
+
+      const technician = String(
+        item.technician ||
+          item.tecnico ||
+          item.assigned_technician ||
+          ""
+      ).toLowerCase();
+
+      const status = getStatus(item).toLowerCase();
+
+      const matchText =
+        !q ||
+        name.includes(q) ||
+        address.includes(q) ||
+        technician.includes(q);
+
+      const matchStatus =
+        statusFilter === "todos" ||
+        status.includes(statusFilter);
+
+      return matchText && matchStatus;
+    });
+  }, [installations, query, statusFilter]);
+
+  return (
+    <div className="hsm-install-page">
+      <section className="hsm-install-head">
+        <div>
+          <h2>Instalaciones</h2>
+          <p>{stats.total} instalaciones registradas</p>
+        </div>
+
+        <button onClick={loadInstallations}>Actualizar</button>
+      </section>
+
+      <section className="hsm-install-stats">
+        <div>
+          <strong>{stats.nuevas}</strong>
+          <span>Nuevas</span>
+        </div>
+
+        <div>
+          <strong>{stats.programadas}</strong>
+          <span>Programadas</span>
+        </div>
+
+        <div>
+          <strong>{stats.instaladas}</strong>
+          <span>Instaladas</span>
+        </div>
+      </section>
+
+      <section className="hsm-install-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, dirección o técnico..."
+        />
+
+        <div className="hsm-install-filter">
+          <button
+            className={statusFilter === "todos" ? "active" : ""}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todas
+          </button>
+
+          <button
+            className={statusFilter === "nueva" ? "active" : ""}
+            onClick={() => setStatusFilter("nueva")}
+          >
+            Nuevas
+          </button>
+
+          <button
+            className={statusFilter === "programada" ? "active" : ""}
+            onClick={() => setStatusFilter("programada")}
+          >
+            Programadas
+          </button>
+
+          <button
+            className={statusFilter === "instalada" ? "active" : ""}
+            onClick={() => setStatusFilter("instalada")}
+          >
+            Instaladas
+          </button>
+        </div>
+      </section>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando instalaciones...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay instalaciones para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-install-list">
+        {filtered.map((item) => {
+          const name = getCustomerName(item);
+          const status = getStatus(item);
+
+          const address =
+            item.customer_address ||
+            item.address ||
+            item.direccion ||
+            item.client_address ||
+            "Sin dirección";
+
+          const phone =
+            item.customer_phone ||
+            item.phone ||
+            item.telefono ||
+            item.client_phone ||
+            "Sin teléfono";
+
+          const city =
+            item.customer_city ||
+            item.city ||
+            item.localidad ||
+            "-";
+
+          const technician =
+            item.technician ||
+            item.tecnico ||
+            item.assigned_technician ||
+            "Sin técnico";
+
+          const date =
+            item.scheduled_date ||
+            item.fecha_programada ||
+            item.date ||
+            "Sin fecha";
+
+          const plan =
+            item.plan_name ||
+            item.plan ||
+            item.plan_id ||
+            "Sin plan";
+
+          const router =
+            item.router_name ||
+            item.router ||
+            item.router_id ||
+            "Sin router";
+
+          return (
+            <article key={item.id || name} className="hsm-install-card">
+              <div className="hsm-install-top">
+                <div className="hsm-install-icon">🛠️</div>
+
+                <div className="hsm-install-main">
+                  <h3>{name}</h3>
+                  <span className={`hsm-install-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-install-info">
+                <div>
+                  <b>Dirección</b>
+                  <span>{address}</span>
+                </div>
+
+                <div>
+                  <b>Localidad</b>
+                  <span>{city}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone}</span>
+                </div>
+
+                <div>
+                  <b>Técnico</b>
+                  <span>{technician}</span>
+                </div>
+
+                <div>
+                  <b>Fecha</b>
+                  <span>{date}</span>
+                </div>
+
+                <div>
+                  <b>Plan</b>
+                  <span>{plan}</span>
+                </div>
+
+                <div>
+                  <b>Router</b>
+                  <span>{router}</span>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileInstallations;

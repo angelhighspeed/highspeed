@@ -1,0 +1,720 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost, apiPut, normalizeStatus } from "./mobileApi";
+
+const today = new Date().toISOString().slice(0, 10);
+
+const emptyForm = {
+  name: "",
+  phone: "",
+  address: "",
+  city: "",
+  zone: "",
+  scheduled_date: today,
+  router_id: "",
+  plan_id: "",
+  ip_range: "",
+  remote_address: "",
+  pppoe_username: "",
+  pppoe_password: "",
+  notes: "",
+};
+
+function getId(item) {
+  return item?.id || item?.installation_id || item?.customer_id;
+}
+
+function getCustomerName(item) {
+  return (
+    item?.customer_name ||
+    item?.full_name ||
+    item?.name ||
+    item?.nombre ||
+    "Sin nombre"
+  );
+}
+
+function getRouterLabel(router) {
+  const name = router?.name || router?.nombre || `Router #${router?.id}`;
+  const host = router?.host || router?.ip || router?.ip_address || "";
+  return host ? `${name} - ${host}` : name;
+}
+
+function getPlanLabel(plan) {
+  const name = plan?.name || plan?.nombre || plan?.plan_name || `Plan #${plan?.id}`;
+  const price = plan?.price || plan?.precio || plan?.amount || "";
+  return price ? `${name} - $${price}` : name;
+}
+
+function normalizeInstallationStatus(item) {
+  const raw = normalizeStatus(
+    item?.status || item?.estado || item?.installation_status || item?.customer_status
+  );
+
+  if (raw === "completed") return "completed";
+  if (raw === "active" && normalizeStatus(item?.status) === "completed") return "completed";
+  if (raw === "pending") return "pending";
+  if (raw === "in_progress") return "in_progress";
+
+  return raw || "pending";
+}
+
+function shouldShowInstallation(item) {
+  const customerStatus = normalizeStatus(item?.customer_status);
+  return customerStatus !== "deleted";
+}
+
+function parseRanges(router) {
+  const raw =
+    router?.ip_ranges ||
+    router?.ranges ||
+    router?.rangos_ip ||
+    router?.ip_pool ||
+    "";
+
+  return String(raw)
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function ipToNumber(ip) {
+  return String(ip)
+    .split(".")
+    .reduce((acc, part) => acc * 256 + Number(part), 0);
+}
+
+function numberToIp(num) {
+  return [
+    (num >>> 24) & 255,
+    (num >>> 16) & 255,
+    (num >>> 8) & 255,
+    num & 255,
+  ].join(".");
+}
+
+function expandCidr(cidr) {
+  try {
+    const [ip, maskRaw] = String(cidr).split("/");
+    const mask = Number(maskRaw || 24);
+
+    if (!ip || Number.isNaN(mask)) return [];
+
+    const base = ipToNumber(ip);
+    const size = Math.pow(2, 32 - mask);
+    const start = base + 2;
+    const end = base + size - 2;
+
+    const ips = [];
+
+    for (let current = start; current <= end && ips.length < 254; current += 1) {
+      ips.push(numberToIp(current));
+    }
+
+    return ips;
+  } catch {
+    return [];
+  }
+}
+
+function expandRange(range) {
+  const value = String(range || "").trim();
+
+  if (!value) return [];
+
+  if (value.includes("/")) return expandCidr(value);
+
+  if (value.includes("-")) {
+    const [startIp, endIp] = value.split("-").map((item) => item.trim());
+    const start = ipToNumber(startIp);
+    const end = ipToNumber(endIp);
+
+    if (!start || !end || end < start) return [];
+
+    const ips = [];
+
+    for (let current = start; current <= end && ips.length < 254; current += 1) {
+      ips.push(numberToIp(current));
+    }
+
+    return ips;
+  }
+
+  return [value];
+}
+
+export default function MobileInstallations() {
+  const [installations, setInstallations] = useState([]);
+  const [routers, setRouters] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [availableIps, setAvailableIps] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState("pending");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const normalizedInstallations = useMemo(() => {
+    return (installations || [])
+      .filter(shouldShowInstallation)
+      .map((item) => ({
+        ...item,
+        normalized_status: normalizeInstallationStatus(item),
+      }));
+  }, [installations]);
+
+  const visibleInstallations = useMemo(() => {
+    const term = query.trim().toLowerCase();
+
+    return normalizedInstallations.filter((item) => {
+      const status = item.normalized_status;
+
+      // Las completadas quedan guardadas en backend, pero no se muestran en la lista principal.
+      if (status === "completed") return false;
+
+      if (filter === "pending" && status !== "pending") return false;
+
+      if (!term) return true;
+
+      const text = [
+        getCustomerName(item),
+        item.customer_phone,
+        item.phone,
+        item.address,
+        item.customer_zone,
+        item.customer_ip,
+        item.customer_pppoe_username,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(term);
+    });
+  }, [normalizedInstallations, filter, query]);
+
+  const stats = useMemo(() => {
+    return {
+      pending: normalizedInstallations.filter((item) => item.normalized_status === "pending").length,
+      completed: normalizedInstallations.filter((item) => item.normalized_status === "completed").length,
+      inProgress: normalizedInstallations.filter((item) => item.normalized_status === "in_progress").length,
+      total: normalizedInstallations.length,
+    };
+  }, [normalizedInstallations]);
+
+  const selectedRouter = useMemo(() => {
+    return routers.find((router) => String(router.id) === String(form.router_id));
+  }, [routers, form.router_id]);
+
+  const routerRanges = useMemo(() => {
+    return selectedRouter ? parseRanges(selectedRouter) : [];
+  }, [selectedRouter]);
+
+  const usedIps = useMemo(() => {
+    return new Set(
+      normalizedInstallations
+        .map((item) => item.customer_ip || item.remote_address || item.ip || item.ip_address)
+        .filter(Boolean)
+        .map((ip) => String(ip).trim())
+    );
+  }, [normalizedInstallations]);
+
+  const loadInstallations = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const data = await apiGet("/installations");
+      const items = Array.isArray(data) ? data : data?.items || [];
+
+      setInstallations(items);
+    } catch (err) {
+      console.warn("Error cargando instalaciones:", err);
+      setError("No se pudieron cargar las instalaciones.");
+      setInstallations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRouters = async () => {
+    try {
+      const data = await apiGet("/routers");
+      setRouters(Array.isArray(data) ? data : data?.items || []);
+    } catch (err) {
+      console.warn("Error cargando routers:", err);
+      setRouters([]);
+    }
+  };
+
+  const loadPlans = async () => {
+    try {
+      const data = await apiGet("/plans");
+      setPlans(Array.isArray(data) ? data : data?.items || []);
+    } catch (err) {
+      console.warn("Error cargando planes:", err);
+      setPlans([]);
+    }
+  };
+
+  const loadAll = async () => {
+    await Promise.all([loadInstallations(), loadRouters(), loadPlans()]);
+  };
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setAvailableIps([]);
+    setShowForm(false);
+  };
+
+  const handleRouterChange = async (routerId) => {
+    setForm((prev) => ({
+      ...prev,
+      router_id: routerId,
+      ip_range: "",
+      remote_address: "",
+    }));
+
+    setAvailableIps([]);
+
+    if (!routerId) return;
+
+    try {
+      const data = await apiGet(`/routers/${routerId}/available-ips`);
+      const ips =
+        data?.available_ips ||
+        data?.ips ||
+        data?.items ||
+        data?.data ||
+        [];
+
+      if (Array.isArray(ips)) {
+        setAvailableIps(ips.map((item) => String(item)));
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar IPs disponibles del router:", err);
+    }
+  };
+
+  const handleRangeChange = (range) => {
+    const expanded = expandRange(range).filter((ip) => !usedIps.has(ip));
+    const firstIp = availableIps.find((ip) => expanded.includes(ip)) || expanded[0] || "";
+
+    setForm((prev) => ({
+      ...prev,
+      ip_range: range,
+      remote_address: firstIp,
+    }));
+  };
+
+  const validateCreate = () => {
+    if (!form.name.trim()) return "Ingresá el nombre del cliente.";
+    if (!form.address.trim()) return "Ingresá la dirección.";
+    if (!form.router_id) return "Seleccioná el router MikroTik.";
+    if (!form.plan_id) return "Seleccioná el plan.";
+    if (!form.pppoe_username.trim()) return "Ingresá el usuario PPPoE.";
+    if (!form.pppoe_password.trim()) return "Ingresá la contraseña PPPoE.";
+    if (!form.remote_address.trim()) return "Ingresá la IP del cliente.";
+
+    return "";
+  };
+
+  const createInstallation = async (event) => {
+    event.preventDefault();
+
+    const validation = validateCreate();
+
+    if (validation) {
+      alert(validation);
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        customer: {
+          full_name: form.name,
+          name: form.name,
+          nombre: form.name,
+          phone: form.phone,
+          telefono: form.phone,
+          address: form.address,
+          direccion: form.address,
+          city: form.city,
+          localidad: form.city,
+          zone: form.zone,
+          zona: form.zone,
+          router_id: Number(form.router_id),
+          plan_id: Number(form.plan_id),
+          status: "pending_installation",
+          pppoe_username: form.pppoe_username,
+          pppoe_user: form.pppoe_username,
+          username: form.pppoe_username,
+          pppoe_password: form.pppoe_password,
+          password: form.pppoe_password,
+          remote_address: form.remote_address,
+          ip: form.remote_address,
+          ip_address: form.remote_address,
+          customer_ip: form.remote_address,
+          pppoe_ip: form.remote_address,
+        },
+        installation: {
+          router_id: Number(form.router_id),
+          plan_id: Number(form.plan_id),
+          scheduled_date: form.scheduled_date,
+          address: form.address,
+          installation_type: "internet",
+          status: "pending",
+          notes: form.notes,
+        },
+      };
+
+      await apiPost("/installations/create-with-customer", payload);
+
+      await loadInstallations();
+      setFilter("pending");
+      resetForm();
+
+      alert("Instalación creada como pendiente.");
+    } catch (err) {
+      console.warn("Error creando instalación:", err);
+      alert(
+        "No se pudo crear la instalación. Error: " +
+          JSON.stringify(err?.response?.data || err?.message || err)
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const completeInstallation = async (item) => {
+    const id = getId(item);
+
+    if (!id) {
+      alert("Instalación sin ID.");
+      return;
+    }
+
+    if (!confirm(`¿Completar instalación de ${getCustomerName(item)}?`)) return;
+
+    try {
+      setSaving(true);
+
+      const data = await apiPut(`/installations/${id}/complete`, {});
+      const mikrotik = data?.mikrotik || {};
+
+      await loadInstallations();
+      setFilter("pending");
+
+      if (data?.status === "ok" || mikrotik?.status === "ok") {
+        alert("Instalación completada. Cliente activado y enviado a MikroTik.");
+      } else {
+        alert("Instalación completada. Respuesta MikroTik: " + JSON.stringify(mikrotik || data));
+      }
+    } catch (err) {
+      console.warn("Error completando instalación:", err);
+      alert(
+        "No se pudo completar la instalación. Error: " +
+          JSON.stringify(err?.response?.data || err?.message || err)
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelInstallation = async (item) => {
+    const id = getId(item);
+
+    if (!id) {
+      alert("Instalación sin ID.");
+      return;
+    }
+
+    if (!confirm(`¿Cancelar instalación de ${getCustomerName(item)}?`)) return;
+
+    try {
+      setSaving(true);
+      await apiPut(`/installations/${id}/cancel`, {});
+      await loadInstallations();
+      alert("Instalación cancelada.");
+    } catch (err) {
+      console.warn("Error cancelando instalación:", err);
+      alert(
+        "No se pudo cancelar. Error: " +
+          JSON.stringify(err?.response?.data || err?.message || err)
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="hsm-installations-page">
+      <section className="hsm-install-head">
+        <div>
+          <h2>Instalaciones</h2>
+          <p>{stats.pending} pendientes · {stats.completed} completadas</p>
+        </div>
+
+        <div className="hsm-install-head-actions">
+          <button onClick={() => setShowForm(true)}>+ Nueva</button>
+          <button onClick={loadAll}>Actualizar</button>
+        </div>
+      </section>
+
+      <section className="hsm-install-stats">
+        <div>
+          <strong>{stats.pending}</strong>
+          <span>Pendientes</span>
+        </div>
+
+        <div>
+          <strong>{stats.inProgress}</strong>
+          <span>En proceso</span>
+        </div>
+
+        <div>
+          <strong>{stats.completed}</strong>
+          <span>Completadas</span>
+        </div>
+      </section>
+
+      <section className="hsm-install-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar instalación, cliente, teléfono o dirección..."
+        />
+
+        <div className="hsm-install-filter">
+          <button
+            className={filter === "pending" ? "active" : ""}
+            onClick={() => setFilter("pending")}
+          >
+            Pendientes
+          </button>
+
+          {/* Las instalaciones completadas se ocultan de la lista móvil. */}
+        </div>
+      </section>
+
+      {showForm && (
+        <section className="hsm-install-card">
+          <div className="hsm-install-form-title">
+            <h3>Nueva instalación</h3>
+            <button type="button" onClick={resetForm}>×</button>
+          </div>
+
+          <form onSubmit={createInstallation} className="hsm-install-form">
+            <input
+              value={form.name}
+              onChange={(e) => updateForm("name", e.target.value)}
+              placeholder="Nombre del cliente"
+            />
+
+            <input
+              value={form.phone}
+              onChange={(e) => updateForm("phone", e.target.value)}
+              placeholder="Teléfono"
+            />
+
+            <input
+              value={form.address}
+              onChange={(e) => updateForm("address", e.target.value)}
+              placeholder="Dirección"
+            />
+
+            <input
+              value={form.city}
+              onChange={(e) => updateForm("city", e.target.value)}
+              placeholder="Localidad"
+            />
+
+            <input
+              value={form.zone}
+              onChange={(e) => updateForm("zone", e.target.value)}
+              placeholder="Zona / Barrio"
+            />
+
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={(e) => updateForm("scheduled_date", e.target.value)}
+            />
+
+            <select
+              value={form.router_id}
+              onChange={(e) => handleRouterChange(e.target.value)}
+            >
+              <option value="">Seleccionar router MikroTik</option>
+              {routers.map((router) => (
+                <option key={router.id} value={router.id}>
+                  {getRouterLabel(router)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={form.plan_id}
+              onChange={(e) => updateForm("plan_id", e.target.value)}
+            >
+              <option value="">Seleccionar plan</option>
+              {plans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {getPlanLabel(plan)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={form.ip_range}
+              onChange={(e) => handleRangeChange(e.target.value)}
+            >
+              <option value="">Seleccionar rango IP</option>
+              {routerRanges.map((range) => (
+                <option key={range} value={range}>
+                  {range}
+                </option>
+              ))}
+            </select>
+
+            <input
+              value={form.pppoe_username}
+              onChange={(e) => updateForm("pppoe_username", e.target.value)}
+              placeholder="Usuario PPPoE"
+            />
+
+            <input
+              value={form.pppoe_password}
+              onChange={(e) => updateForm("pppoe_password", e.target.value)}
+              placeholder="Contraseña PPPoE"
+            />
+
+            <input
+              value={form.remote_address}
+              onChange={(e) => updateForm("remote_address", e.target.value)}
+              placeholder="IP del cliente"
+            />
+
+            <textarea
+              value={form.notes}
+              onChange={(e) => updateForm("notes", e.target.value)}
+              placeholder="Notas de instalación"
+            />
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Crear instalación pendiente"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <section className="hsm-install-empty">
+          <p>Cargando instalaciones...</p>
+        </section>
+      )}
+
+      {error && (
+        <section className="hsm-install-empty">
+          <p>{error}</p>
+        </section>
+      )}
+
+      {!loading && !error && visibleInstallations.length === 0 && (
+        <section className="hsm-install-empty">
+          <p>No hay instalaciones para mostrar.</p>
+        </section>
+      )}
+
+      <section className="hsm-install-list">
+        {visibleInstallations.map((item) => {
+          const status = item.normalized_status;
+          const isCompleted = status === "completed";
+
+          return (
+            <article key={getId(item)} className="hsm-install-item">
+              <div className="hsm-install-item-head">
+                <div>
+                  <h3>{getCustomerName(item)}</h3>
+                  <span className={`hsm-status ${status}`}>
+                    {isCompleted ? "Completada" : "Pendiente"}
+                  </span>
+                </div>
+
+                <div className="hsm-install-icon">🛠️</div>
+              </div>
+
+              <div className="hsm-install-grid">
+                <div>
+                  <small>Dirección</small>
+                  <strong>{item.address || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>Teléfono</small>
+                  <strong>{item.customer_phone || item.phone || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>Fecha</small>
+                  <strong>{item.scheduled_date || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>Zona</small>
+                  <strong>{item.customer_zone || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>Usuario PPPoE</small>
+                  <strong>{item.customer_pppoe_username || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>IP</small>
+                  <strong>{item.customer_ip || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>Router</small>
+                  <strong>{item.router_id || "-"}</strong>
+                </div>
+
+                <div>
+                  <small>MikroTik</small>
+                  <strong>{item.mikrotik_status || "pending"}</strong>
+                </div>
+              </div>
+
+              {!isCompleted && (
+                <div className="hsm-install-actions">
+                  <button disabled={saving} onClick={() => completeInstallation(item)}>
+                    Completar
+                  </button>
+
+                  <button disabled={saving} className="danger" onClick={() => cancelInstallation(item)}>
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}

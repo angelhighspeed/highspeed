@@ -1,8 +1,10 @@
 import { useState } from "react";
 import Login from "./Login";
 import Dashboard from "./Dashboard";
+import MobileDashboard from "./MobileDashboard";
 
 function App() {
+  const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   const [isLogged, setIsLogged] = useState(!!localStorage.getItem("token"));
 
   const logout = () => {
@@ -14,7 +16,11 @@ function App() {
     return <Login onLogin={() => setIsLogged(true)} />;
   }
 
-  return <Dashboard onLogout={logout} />;
+  return isMobile ? (
+    <MobileDashboard onLogout={logout} />
+  ) : (
+    <Dashboard onLogout={logout} />
+  );
 }
 
 export default App;

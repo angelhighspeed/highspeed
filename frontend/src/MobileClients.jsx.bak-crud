@@ -1,0 +1,340 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("access_token") || "";
+}
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+    },
+  };
+}
+
+function getFullName(client) {
+  const first =
+    client.name ||
+    client.nombre ||
+    client.first_name ||
+    client.firstname ||
+    "";
+
+  const last =
+    client.last_name ||
+    client.apellido ||
+    client.lastname ||
+    "";
+
+  const full = `${first} ${last}`.trim();
+
+  return (
+    client.full_name ||
+    client.nombre_completo ||
+    client.customer_name ||
+    full ||
+    `Cliente #${client.id}`
+  );
+}
+
+function getPhone(client) {
+  return (
+    client.phone ||
+    client.telefono ||
+    client.mobile ||
+    client.celular ||
+    client.whatsapp ||
+    ""
+  );
+}
+
+function getStatus(client) {
+  const raw = String(
+    client.status ||
+      client.estado ||
+      client.state ||
+      ""
+  ).toLowerCase();
+
+  if (raw.includes("suspend")) return "Suspendido";
+  if (raw.includes("activo") || raw.includes("active")) return "Activo";
+  if (raw.includes("pending") || raw.includes("pendiente")) return "Pendiente";
+
+  return raw ? raw : "Sin estado";
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("activo")) return "ok";
+  if (s.includes("suspendido")) return "bad";
+  if (s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function MobileClients() {
+  const [clients, setClients] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadClients = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      try {
+        res = await axios.get(`${API}/customers`, getHeaders());
+      } catch {
+        res = await axios.get(`${API}/customers/list-all`, getHeaders());
+      }
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.customers)
+        ? res.data.customers
+        : [];
+
+      setClients(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los clientes.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClients();
+  }, []);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let suspendidos = 0;
+    let pendientes = 0;
+
+    clients.forEach((client) => {
+      const status = getStatus(client).toLowerCase();
+
+      if (status.includes("activo")) activos += 1;
+      else if (status.includes("suspendido")) suspendidos += 1;
+      else pendientes += 1;
+    });
+
+    return {
+      total: clients.length,
+      activos,
+      suspendidos,
+      pendientes,
+    };
+  }, [clients]);
+
+  const filteredClients = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return clients.filter((client) => {
+      const name = getFullName(client).toLowerCase();
+      const phone = getPhone(client).toLowerCase();
+      const address = String(
+        client.address ||
+          client.direccion ||
+          client.location ||
+          client.ubicacion ||
+          ""
+      ).toLowerCase();
+
+      const status = getStatus(client).toLowerCase();
+
+      const matchText =
+        !q ||
+        name.includes(q) ||
+        phone.includes(q) ||
+        address.includes(q);
+
+      const matchStatus =
+        statusFilter === "todos" ||
+        status.includes(statusFilter);
+
+      return matchText && matchStatus;
+    });
+  }, [clients, query, statusFilter]);
+
+  return (
+    <div className="hsm-clients-page">
+      <section className="hsm-clients-head">
+        <div>
+          <h2>Clientes</h2>
+          <p>{stats.total} clientes registrados</p>
+        </div>
+
+        <button onClick={loadClients}>
+          Actualizar
+        </button>
+      </section>
+
+      <section className="hsm-client-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.suspendidos}</strong>
+          <span>Suspendidos</span>
+        </div>
+
+        <div>
+          <strong>{stats.pendientes}</strong>
+          <span>Otros</span>
+        </div>
+      </section>
+
+      <section className="hsm-client-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, teléfono o dirección..."
+        />
+
+        <div className="hsm-client-filter">
+          <button
+            className={statusFilter === "todos" ? "active" : ""}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todos
+          </button>
+
+          <button
+            className={statusFilter === "activo" ? "active" : ""}
+            onClick={() => setStatusFilter("activo")}
+          >
+            Activos
+          </button>
+
+          <button
+            className={statusFilter === "suspendido" ? "active" : ""}
+            onClick={() => setStatusFilter("suspendido")}
+          >
+            Suspendidos
+          </button>
+        </div>
+      </section>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando clientes...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredClients.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay clientes para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-client-list">
+        {filteredClients.map((client) => {
+          const name = getFullName(client);
+          const phone = getPhone(client);
+          const status = getStatus(client);
+          const plan =
+            client.plan_name ||
+            client.plan ||
+            client.plan_nombre ||
+            client.service_plan ||
+            "Sin plan";
+
+          const address =
+            client.address ||
+            client.direccion ||
+            client.location ||
+            client.ubicacion ||
+            "Sin dirección";
+
+          const ip =
+            client.ip ||
+            client.ip_address ||
+            client.pppoe_ip ||
+            client.router_ip ||
+            "";
+
+          const cleanPhone = String(phone).replace(/\D/g, "");
+
+          return (
+            <article key={client.id || name} className="hsm-client-card">
+              <div className="hsm-client-top">
+                <div className="hsm-client-avatar">
+                  {name.charAt(0).toUpperCase()}
+                </div>
+
+                <div className="hsm-client-main">
+                  <h3>{name}</h3>
+                  <span className={`hsm-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-client-info">
+                <div>
+                  <b>Plan</b>
+                  <span>{plan}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone || "Sin teléfono"}</span>
+                </div>
+
+                <div>
+                  <b>Dirección</b>
+                  <span>{address}</span>
+                </div>
+
+                {ip ? (
+                  <div>
+                    <b>IP</b>
+                    <span>{ip}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="hsm-client-actions">
+                {cleanPhone ? (
+                  <a
+                    href={`https://wa.me/${cleanPhone}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                ) : null}
+
+                <button onClick={() => alert(`Cliente: ${name}`)}>
+                  Ver detalle
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileClients;

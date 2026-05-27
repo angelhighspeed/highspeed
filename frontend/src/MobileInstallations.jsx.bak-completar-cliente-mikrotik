@@ -1,0 +1,531 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  customer_name: "",
+  customer_last_name: "",
+  customer_dni: "",
+  customer_phone: "",
+  customer_email: "",
+  customer_city: "",
+  customer_address: "",
+  client_zone: "",
+  contract_type: "",
+  installation_cost: "",
+  technician: "",
+  scheduled_date: "",
+  installation_status: "Nueva",
+  installation_type: "",
+  notes: "",
+  comments: "",
+  plan_id: "",
+  router_id: "",
+};
+
+function getCustomerName(item) {
+  const first = item.customer_name || item.name || item.nombre || "";
+  const last = item.customer_last_name || item.last_name || item.apellido || "";
+  const full = `${first} ${last}`.trim();
+
+  return item.full_name || item.customer_full_name || full || `Instalación #${item.id}`;
+}
+
+function getStatus(item) {
+  return item.installation_status || item.status || item.estado || "Sin estado";
+}
+
+function statusClass(status) {
+  const s = String(status).toLowerCase();
+
+  if (s.includes("instalada") || s.includes("complet")) return "ok";
+  if (s.includes("programada") || s.includes("agendada")) return "info";
+  if (s.includes("cancel")) return "bad";
+  if (s.includes("nueva") || s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function isInstalled(item) {
+  const s = getStatus(item).toLowerCase();
+  return s.includes("instalada") || s.includes("complet");
+}
+
+function MobileInstallations() {
+  const [installations, setInstallations] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pendientes");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+
+  const loadInstallations = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await axios.get(`${API}/installations`, getHeaders());
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.installations)
+        ? res.data.installations
+        : [];
+
+      setInstallations(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar las instalaciones.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInstallations();
+  }, []);
+
+  const stats = useMemo(() => {
+    let nuevas = 0;
+    let programadas = 0;
+    let instaladas = 0;
+
+    installations.forEach((item) => {
+      const s = getStatus(item).toLowerCase();
+
+      if (s.includes("instalada") || s.includes("complet")) instaladas += 1;
+      else if (s.includes("programada") || s.includes("agendada")) programadas += 1;
+      else nuevas += 1;
+    });
+
+    return {
+      total: installations.length,
+      nuevas,
+      programadas,
+      instaladas,
+      pendientes: nuevas + programadas,
+    };
+  }, [installations]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return installations.filter((item) => {
+      const name = getCustomerName(item).toLowerCase();
+
+      const address = String(
+        item.customer_address ||
+          item.address ||
+          item.direccion ||
+          item.client_address ||
+          ""
+      ).toLowerCase();
+
+      const technician = String(
+        item.technician ||
+          item.tecnico ||
+          item.assigned_technician ||
+          ""
+      ).toLowerCase();
+
+      const status = getStatus(item).toLowerCase();
+
+      const matchText =
+        !q ||
+        name.includes(q) ||
+        address.includes(q) ||
+        technician.includes(q);
+
+      let matchStatus = true;
+
+      if (statusFilter === "pendientes") {
+        matchStatus = !isInstalled(item);
+      } else if (statusFilter !== "todos") {
+        matchStatus = status.includes(statusFilter);
+      }
+
+      return matchText && matchStatus;
+    });
+  }, [installations, query, statusFilter]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const createInstallation = async (e) => {
+    e.preventDefault();
+
+    if (!form.customer_name.trim()) {
+      alert("Ingresá el nombre del cliente.");
+      return;
+    }
+
+    if (!form.customer_phone.trim()) {
+      alert("Ingresá el teléfono del cliente.");
+      return;
+    }
+
+    if (!form.customer_address.trim()) {
+      alert("Ingresá la dirección.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...form,
+        installation_cost: form.installation_cost
+          ? Number(form.installation_cost)
+          : 0,
+        plan_id: form.plan_id ? Number(form.plan_id) : null,
+        router_id: form.router_id ? Number(form.router_id) : null,
+      };
+
+      await axios.post(`${API}/installations`, payload, getHeaders());
+
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadInstallations();
+
+      alert("Instalación creada correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo crear la instalación. Revisá los datos.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="hsm-install-page">
+      <section className="hsm-install-head">
+        <div>
+          <h2>Instalaciones</h2>
+          <p>{stats.pendientes} pendientes · {stats.instaladas} instaladas</p>
+        </div>
+
+        <button onClick={() => setShowForm(true)}>+ Nueva</button>
+      </section>
+
+      <section className="hsm-install-stats">
+        <div>
+          <strong>{stats.nuevas}</strong>
+          <span>Nuevas</span>
+        </div>
+
+        <div>
+          <strong>{stats.programadas}</strong>
+          <span>Programadas</span>
+        </div>
+
+        <div>
+          <strong>{stats.instaladas}</strong>
+          <span>Instaladas</span>
+        </div>
+      </section>
+
+      <section className="hsm-install-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, dirección o técnico..."
+        />
+
+        <div className="hsm-install-filter">
+          <button
+            className={statusFilter === "pendientes" ? "active" : ""}
+            onClick={() => setStatusFilter("pendientes")}
+          >
+            Pendientes
+          </button>
+
+          <button
+            className={statusFilter === "todos" ? "active" : ""}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todas
+          </button>
+
+          <button
+            className={statusFilter === "nueva" ? "active" : ""}
+            onClick={() => setStatusFilter("nueva")}
+          >
+            Nuevas
+          </button>
+
+          <button
+            className={statusFilter === "programada" ? "active" : ""}
+            onClick={() => setStatusFilter("programada")}
+          >
+            Programadas
+          </button>
+
+          <button
+            className={statusFilter === "instalada" ? "active" : ""}
+            onClick={() => setStatusFilter("instalada")}
+          >
+            Instaladas
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-install-refresh" onClick={loadInstallations}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-install-form-card">
+          <div className="hsm-install-form-head">
+            <h3>Nueva instalación</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={createInstallation} className="hsm-install-form">
+            <input
+              placeholder="Nombre"
+              value={form.customer_name}
+              onChange={(e) => updateForm("customer_name", e.target.value)}
+            />
+
+            <input
+              placeholder="Apellido"
+              value={form.customer_last_name}
+              onChange={(e) => updateForm("customer_last_name", e.target.value)}
+            />
+
+            <input
+              placeholder="DNI"
+              value={form.customer_dni}
+              onChange={(e) => updateForm("customer_dni", e.target.value)}
+            />
+
+            <input
+              placeholder="Teléfono"
+              value={form.customer_phone}
+              onChange={(e) => updateForm("customer_phone", e.target.value)}
+            />
+
+            <input
+              placeholder="Email"
+              value={form.customer_email}
+              onChange={(e) => updateForm("customer_email", e.target.value)}
+            />
+
+            <input
+              placeholder="Localidad"
+              value={form.customer_city}
+              onChange={(e) => updateForm("customer_city", e.target.value)}
+            />
+
+            <input
+              placeholder="Dirección"
+              value={form.customer_address}
+              onChange={(e) => updateForm("customer_address", e.target.value)}
+            />
+
+            <input
+              placeholder="Zona / Barrio"
+              value={form.client_zone}
+              onChange={(e) => updateForm("client_zone", e.target.value)}
+            />
+
+            <input
+              placeholder="Técnico"
+              value={form.technician}
+              onChange={(e) => updateForm("technician", e.target.value)}
+            />
+
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={(e) => updateForm("scheduled_date", e.target.value)}
+            />
+
+            <select
+              value={form.installation_status}
+              onChange={(e) => updateForm("installation_status", e.target.value)}
+            >
+              <option value="Nueva">Nueva</option>
+              <option value="Programada">Programada</option>
+              <option value="Instalada">Instalada</option>
+              <option value="Cancelada">Cancelada</option>
+            </select>
+
+            <input
+              placeholder="Tipo de instalación"
+              value={form.installation_type}
+              onChange={(e) => updateForm("installation_type", e.target.value)}
+            />
+
+            <input
+              type="number"
+              placeholder="Costo instalación"
+              value={form.installation_cost}
+              onChange={(e) => updateForm("installation_cost", e.target.value)}
+            />
+
+            <input
+              placeholder="ID Plan"
+              value={form.plan_id}
+              onChange={(e) => updateForm("plan_id", e.target.value)}
+            />
+
+            <input
+              placeholder="ID Router"
+              value={form.router_id}
+              onChange={(e) => updateForm("router_id", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Notas"
+              value={form.notes}
+              onChange={(e) => updateForm("notes", e.target.value)}
+            />
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Guardar instalación"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando instalaciones...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay instalaciones para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-install-list">
+        {filtered.map((item) => {
+          const name = getCustomerName(item);
+          const status = getStatus(item);
+
+          const address =
+            item.customer_address ||
+            item.address ||
+            item.direccion ||
+            item.client_address ||
+            "Sin dirección";
+
+          const phone =
+            item.customer_phone ||
+            item.phone ||
+            item.telefono ||
+            item.client_phone ||
+            "Sin teléfono";
+
+          const city =
+            item.customer_city ||
+            item.city ||
+            item.localidad ||
+            "-";
+
+          const technician =
+            item.technician ||
+            item.tecnico ||
+            item.assigned_technician ||
+            "Sin técnico";
+
+          const date =
+            item.scheduled_date ||
+            item.fecha_programada ||
+            item.date ||
+            "Sin fecha";
+
+          const plan =
+            item.plan_name ||
+            item.plan ||
+            item.plan_id ||
+            "Sin plan";
+
+          const router =
+            item.router_name ||
+            item.router ||
+            item.router_id ||
+            "Sin router";
+
+          return (
+            <article key={item.id || name} className="hsm-install-card">
+              <div className="hsm-install-top">
+                <div className="hsm-install-icon">🛠️</div>
+
+                <div className="hsm-install-main">
+                  <h3>{name}</h3>
+                  <span className={`hsm-install-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-install-info">
+                <div>
+                  <b>Dirección</b>
+                  <span>{address}</span>
+                </div>
+
+                <div>
+                  <b>Localidad</b>
+                  <span>{city}</span>
+                </div>
+
+                <div>
+                  <b>Teléfono</b>
+                  <span>{phone}</span>
+                </div>
+
+                <div>
+                  <b>Técnico</b>
+                  <span>{technician}</span>
+                </div>
+
+                <div>
+                  <b>Fecha</b>
+                  <span>{date}</span>
+                </div>
+
+                <div>
+                  <b>Plan</b>
+                  <span>{plan}</span>
+                </div>
+
+                <div>
+                  <b>Router</b>
+                  <span>{router}</span>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileInstallations;

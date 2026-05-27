@@ -1,0 +1,683 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  id: null,
+  name: "",
+  host: "",
+  port: "8728",
+  www_port: "80",
+  username: "",
+  password: "",
+  lan_interface: "",
+  zone: "General",
+  ip_ranges: "",
+  location: "",
+  description: "",
+  active: true,
+};
+
+function getRouterName(router) {
+  return router.name || router.nombre || router.router_name || `Router #${router.id}`;
+}
+
+function getRouterHost(router) {
+  return router.host || router.ip || router.ip_address || router.address || "-";
+}
+
+function getRouterPort(router) {
+  return router.port || router.api_port || "8728";
+}
+
+function getRouterWwwPort(router) {
+  return router.www_port || router.web_port || router.http_port || "80";
+}
+
+function getRouterUser(router) {
+  return router.username || router.user || router.usuario || "-";
+}
+
+function getRouterLocation(router) {
+  return router.location || router.ubicacion || router.zone || router.zona || "-";
+}
+
+function getLanInterface(router) {
+  return router.lan_interface || router.interface_lan || router.interfaz_lan || router.interface || "";
+}
+
+function getIpRanges(router) {
+  const raw =
+    router.ip_ranges ||
+    router.rangos_ip ||
+    router.ranges ||
+    router.ip_pools ||
+    router.pools ||
+    "";
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (typeof item === "string") return item;
+        return item.cidr || item.range || item.network || item.pool || item.name || "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return String(raw || "");
+}
+
+function getRouterStatus(router) {
+  const raw = String(
+    router.connection_status ||
+    router.mikrotik_status ||
+    router.status ||
+    ""
+  ).toLowerCase();
+
+  if (raw === "online" || raw === "ok" || raw === "active" || router.active === true) {
+    return "Activo";
+  }
+
+  if (raw === "error" || raw === "offline" || raw === "failed") {
+    return "Error";
+  }
+
+  return "Sin comprobar";
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("conectado") || s.includes("activo")) return "ok";
+  if (s.includes("error") || s.includes("desconectado")) return "bad";
+  if (s.includes("inactivo")) return "warn";
+
+  return "";
+}
+
+function routerToForm(router) {
+  return {
+    id: router.id || null,
+    name: router.name || router.nombre || router.router_name || "",
+    host: router.host || router.ip || router.ip_address || router.address || "",
+    port: router.port || router.api_port || "8728",
+    www_port: router.www_port || router.web_port || router.http_port || "80",
+    username: router.username || router.user || router.usuario || "",
+    password: router.password || router.pass || "",
+    lan_interface: getLanInterface(router),
+    zone: router.zone || router.zona || "General",
+    ip_ranges: getIpRanges(router),
+    location: router.location || router.ubicacion || "",
+    description: router.description || router.comentarios || router.comments || "",
+    active: router.active !== false,
+  };
+}
+
+function MobileRouters() {
+
+  const testRouterConnection = async (router) => {
+    const id = router.id || router.router_id;
+
+    if (!id) {
+      return {
+        ...router,
+        connection_status: "error",
+        mikrotik_status: "error",
+        error_message: "Router sin ID",
+      };
+    }
+
+    try {
+      const res = await axios.post(`${API}/routers/${id}/test`, {}, getHeaders());
+      const data = res.data || {};
+      const resource = Array.isArray(data.resources) ? data.resources[0] || {} : {};
+
+      return {
+        ...router,
+        connection_status: data.status || "online",
+        mikrotik_status: data.status || "online",
+        status: data.status || "online",
+        active: data.status === "online" || data.status === "ok",
+        uptime: resource.uptime || router.uptime || "",
+        version: resource.version || router.version || "",
+        cpu_load: resource["cpu-load"] ?? router.cpu_load ?? "",
+        free_memory: resource["free-memory"] ?? router.free_memory ?? "",
+      };
+    } catch (err) {
+      console.warn("Prueba router falló:", err?.response?.status, err?.response?.data || err?.message);
+
+      return {
+        ...router,
+        connection_status: "error",
+        mikrotik_status: "error",
+        status: "error",
+        active: false,
+        error_message: err?.response?.data?.detail || err?.message || "Error de conexión",
+      };
+    }
+  };
+
+  const [routers, setRouters] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+
+  const [testingId, setTestingId] = useState(null);
+
+  const loadRouters = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await axios.get(`${API}/routers`, getHeaders());
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.routers)
+        ? res.data.routers
+        : [];
+
+      const checkedRouters = await Promise.all((data || []).map((router) => testRouterConnection(router)));
+      setRouters(checkedRouters);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los routers.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRouters();
+  }, []);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let inactivos = 0;
+    let errores = 0;
+
+    routers.forEach((router) => {
+      const status = getRouterStatus(router).toLowerCase();
+
+      if (status.includes("error") || status.includes("desconectado")) errores += 1;
+      else if (status.includes("inactivo")) inactivos += 1;
+      else activos += 1;
+    });
+
+    return {
+      total: routers.length,
+      activos,
+      inactivos,
+      errores,
+    };
+  }, [routers]);
+
+  const filteredRouters = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return routers.filter((router) => {
+      const name = getRouterName(router).toLowerCase();
+      const host = getRouterHost(router).toLowerCase();
+      const user = getRouterUser(router).toLowerCase();
+      const location = getRouterLocation(router).toLowerCase();
+      const ranges = getIpRanges(router).toLowerCase();
+      const status = getRouterStatus(router).toLowerCase();
+
+      const matchText =
+        !q ||
+        name.includes(q) ||
+        host.includes(q) ||
+        user.includes(q) ||
+        location.includes(q) ||
+        ranges.includes(q);
+
+      let matchStatus = true;
+
+      if (statusFilter === "activos") {
+        matchStatus = status.includes("activo") || status.includes("conectado");
+      } else if (statusFilter === "errores") {
+        matchStatus = status.includes("error") || status.includes("desconectado");
+      } else if (statusFilter === "inactivos") {
+        matchStatus = status.includes("inactivo");
+      }
+
+      return matchText && matchStatus;
+    });
+  }, [routers, query, statusFilter]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openNewRouter = () => {
+    setForm(emptyForm);
+    setShowForm(true);
+  };
+
+  const openEditRouter = (router) => {
+    setForm(routerToForm(router));
+    setShowForm(true);
+  };
+
+  const saveRouter = async (e) => {
+    e.preventDefault();
+
+    if (!form.name.trim()) {
+      alert("Ingresá el nombre del router.");
+      return;
+    }
+
+    if (!form.host.trim()) {
+      alert("Ingresá la IP o host del router.");
+      return;
+    }
+
+    if (!form.username.trim()) {
+      alert("Ingresá el usuario.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const rangesArray = form.ip_ranges
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const payload = {
+        ...form,
+        nombre: form.name,
+        router_name: form.name,
+        ip: form.host,
+        ip_address: form.host,
+        host: form.host,
+        api_port: Number(form.port || 8728),
+        port: Number(form.port || 8728),
+        www_port: Number(form.www_port || 80),
+        web_port: Number(form.www_port || 80),
+        user: form.username,
+        usuario: form.username,
+        lan_interface: form.lan_interface,
+        interface_lan: form.lan_interface,
+        interfaz_lan: form.lan_interface,
+        zone: form.zone,
+        zona: form.zone,
+        ip_ranges: rangesArray,
+        rangos_ip: rangesArray,
+        ranges: rangesArray,
+        comentarios: form.description,
+        comments: form.description,
+        active: Boolean(form.active),
+      };
+
+      if (form.id) {
+        let saved = false;
+
+        const attempts = [
+          () => axios.put(`${API}/routers/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/routers/${form.id}`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento editar router falló:", err?.response?.status || err?.message);
+          }
+        }
+
+        if (!saved) throw new Error("No se pudo editar router.");
+      } else {
+        let saved = false;
+
+        const attempts = [
+          () => axios.post(`${API}/routers`, payload, getHeaders()),
+          () => axios.post(`${API}/routers/`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento crear router falló:", err?.response?.status || err?.message);
+          }
+        }
+
+        if (!saved) throw new Error("No se pudo crear router.");
+      }
+
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadRouters();
+
+      alert(form.id ? "Router actualizado correctamente." : "Router creado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo guardar el router. Revisá los datos o el endpoint del backend.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testRouter = async (router) => {
+    try {
+      setTestingId(router.id);
+
+      let ok = false;
+
+      const payload = {
+        router_id: router.id,
+        id: router.id,
+        host: getRouterHost(router),
+        ip: getRouterHost(router),
+        port: Number(getRouterPort(router)),
+        username: getRouterUser(router),
+      };
+
+      const attempts = [
+        () => axios.post(`${API}/routers/${router.id}/test`, payload, getHeaders()),
+        () => axios.post(`${API}/routers/test`, payload, getHeaders()),
+        () => axios.post(`${API}/mikrotik/test-connection`, payload, getHeaders()),
+        () => axios.post(`${API}/mikrotik/test`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          ok = true;
+          break;
+        } catch (err) {
+          console.warn("Intento test router falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (ok) {
+        alert("Prueba enviada correctamente.");
+      } else {
+        alert("No se encontró endpoint de prueba. El router queda listado igual.");
+      }
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-router-page">
+      <section className="hsm-router-head">
+        <div>
+          <h2>Routers</h2>
+          <p>{stats.total} routers registrados</p>
+        </div>
+
+        <button onClick={openNewRouter}>+ Nuevo</button>
+      </section>
+
+      <section className="hsm-router-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.errores}</strong>
+          <span>Errores</span>
+        </div>
+
+        <div>
+          <strong>{stats.inactivos}</strong>
+          <span>Inactivos</span>
+        </div>
+      </section>
+
+      <section className="hsm-router-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar router, IP, usuario, ubicación o rango..."
+        />
+
+        <div className="hsm-router-filter">
+          <button
+            className={statusFilter === "todos" ? "active" : ""}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todos
+          </button>
+
+          <button
+            className={statusFilter === "activos" ? "active" : ""}
+            onClick={() => setStatusFilter("activos")}
+          >
+            Activos
+          </button>
+
+          <button
+            className={statusFilter === "errores" ? "active" : ""}
+            onClick={() => setStatusFilter("errores")}
+          >
+            Errores
+          </button>
+
+          <button
+            className={statusFilter === "inactivos" ? "active" : ""}
+            onClick={() => setStatusFilter("inactivos")}
+          >
+            Inactivos
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-router-refresh" onClick={loadRouters}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-router-form-card">
+          <div className="hsm-router-form-head">
+            <h3>{form.id ? "Editar router" : "Nuevo router"}</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={saveRouter} className="hsm-router-form">
+            <input
+              placeholder="Nombre"
+              value={form.name}
+              onChange={(e) => updateForm("name", e.target.value)}
+            />
+
+            <input
+              placeholder="IPv4 / DDNS"
+              value={form.host}
+              onChange={(e) => updateForm("host", e.target.value)}
+            />
+
+            <input
+              placeholder="Usuario del router"
+              value={form.username}
+              onChange={(e) => updateForm("username", e.target.value)}
+            />
+
+            <input
+              type="password"
+              placeholder="Password del router"
+              value={form.password}
+              onChange={(e) => updateForm("password", e.target.value)}
+            />
+
+            <input
+              type="number"
+              placeholder="Puerto API"
+              value={form.port}
+              onChange={(e) => updateForm("port", e.target.value)}
+            />
+
+            <input
+              type="number"
+              placeholder="Puerto WWW"
+              value={form.www_port}
+              onChange={(e) => updateForm("www_port", e.target.value)}
+            />
+
+            <input
+              placeholder="Interfaz LAN"
+              value={form.lan_interface}
+              onChange={(e) => updateForm("lan_interface", e.target.value)}
+            />
+
+            <input
+              placeholder="Zona"
+              value={form.zone}
+              onChange={(e) => updateForm("zone", e.target.value)}
+            />
+
+            <textarea
+              className="hsm-router-ranges"
+              placeholder={"Rangos IP, uno por línea\n192.168.1.0/24\n192.168.2.0/24\n192.168.3.0/24"}
+              value={form.ip_ranges}
+              onChange={(e) => updateForm("ip_ranges", e.target.value)}
+            />
+
+            <input
+              placeholder="Ubicación / Nodo"
+              value={form.location}
+              onChange={(e) => updateForm("location", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Comentarios"
+              value={form.description}
+              onChange={(e) => updateForm("description", e.target.value)}
+            />
+
+            <label className="hsm-router-check">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) => updateForm("active", e.target.checked)}
+              />
+              Router activo
+            </label>
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : form.id ? "Guardar cambios" : "Guardar router"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando routers...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredRouters.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay routers para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-router-list">
+        {filteredRouters.map((router) => {
+          const status = getRouterStatus(router);
+          const ranges = getIpRanges(router);
+
+          return (
+            <article key={router.id || getRouterName(router)} className="hsm-router-card">
+              <div className="hsm-router-top">
+                <div className="hsm-router-icon">📡</div>
+
+                <div className="hsm-router-main">
+                  <h3>{getRouterName(router)}</h3>
+                  <span className={`hsm-router-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hsm-router-info">
+                <div>
+                  <b>IPv4 / DDNS</b>
+                  <span>{getRouterHost(router)}</span>
+                </div>
+
+                <div>
+                  <b>Puerto API</b>
+                  <span>{getRouterPort(router)}</span>
+                </div>
+
+                <div>
+                  <b>Puerto WWW</b>
+                  <span>{getRouterWwwPort(router)}</span>
+                </div>
+
+                <div>
+                  <b>Usuario</b>
+                  <span>{getRouterUser(router)}</span>
+                </div>
+
+                <div>
+                  <b>Interfaz LAN</b>
+                  <span>{getLanInterface(router) || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Zona</b>
+                  <span>{getRouterLocation(router)}</span>
+                </div>
+              </div>
+
+              {ranges ? (
+                <div className="hsm-router-ranges-box">
+                  <b>Rangos IP</b>
+                  <pre>{ranges}</pre>
+                </div>
+              ) : null}
+
+              <div className="hsm-router-actions grid">
+                <button onClick={() => openEditRouter(router)}>
+                  Editar
+                </button>
+
+                <button onClick={() => testRouter(router)} disabled={testingId === router.id}>
+                  {testingId === router.id ? "Probando..." : "Probar conexión"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileRouters;

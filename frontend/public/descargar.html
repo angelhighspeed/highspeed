@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Descargar HighSpeed ISP</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #0f172a;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: white;
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.35);
+      text-align: center;
+    }
+
+    .logo {
+      width: 92px;
+      height: 92px;
+      border-radius: 24px;
+      object-fit: contain;
+      background: #f8fafc;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 8px 0 4px;
+      font-size: 26px;
+    }
+
+    p {
+      color: #64748b;
+      font-size: 14px;
+      margin: 6px 0;
+    }
+
+    .version {
+      display: inline-block;
+      background: #eff6ff;
+      color: #2563eb;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: bold;
+      margin: 10px 0 16px;
+    }
+
+    .btn {
+      display: block;
+      background: #2563eb;
+      color: white;
+      text-decoration: none;
+      border-radius: 14px;
+      padding: 14px;
+      font-weight: bold;
+      margin: 14px 0;
+    }
+
+    .btn.secondary {
+      background: #16a34a;
+    }
+
+    .qr {
+      width: 210px;
+      max-width: 100%;
+      border-radius: 12px;
+      margin: 12px auto;
+      display: block;
+      border: 1px solid #e2e8f0;
+    }
+
+    .steps {
+      text-align: left;
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 12px;
+      margin-top: 14px;
+    }
+
+    .steps strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .steps ol {
+      padding-left: 20px;
+      margin: 0;
+      color: #475569;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .footer {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 14px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="/assets/logo-C1sWd3Nm.png" alt="HighSpeed ISP" />
+
+    <h1>HighSpeed ISP</h1>
+    <p>Aplicación móvil para gestión ISP</p>
+
+    <span class="version">Versión 1.0.0 · Release firmada</span>
+
+    <a class="btn" href="/highspeed-isp-release.apk" download>
+      Descargar APK
+    </a>
+
+    <a class="btn secondary" href="/highspeed-mobile.apk" download>
+      Descargar alternativa
+    </a>
+
+    <p>También podés escanear este QR:</p>
+    <img class="qr" src="/highspeed-apk-qr.png" alt="QR descarga APK" />
+
+    <div class="steps">
+      <strong>Instalación en Android</strong>
+      <ol>
+        <li>Tocar “Descargar APK”.</li>
+        <li>Abrir el archivo descargado.</li>
+        <li>Permitir instalación desde el navegador si Android lo solicita.</li>
+        <li>Instalar y abrir HighSpeed ISP.</li>
+      </ol>
+    </div>
+
+    <div class="footer">
+      http://192.168.0.113:5173/highspeed-isp-release.apk
+    </div>
+  </main>
+</body>
+</html>

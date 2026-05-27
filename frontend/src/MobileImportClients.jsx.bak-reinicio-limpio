@@ -1,0 +1,464 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import * as XLSX from "xlsx";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${
+        localStorage.getItem("token") || localStorage.getItem("access_token") || ""
+      }`,
+    },
+  };
+}
+
+function getClientName(item) {
+  return (
+    item.name ||
+    item.nombre ||
+    item.full_name ||
+    item.customer_name ||
+    item.client_name ||
+    item.username ||
+    item.pppoe_user ||
+    "Cliente sin nombre"
+  );
+}
+
+function getRouterLabel(router) {
+  const name = router.name || router.nombre || router.router_name || `Router #${router.id}`;
+  const ip = router.host || router.ip || router.ip_address || router.address || "";
+  return ip ? `${name} - ${ip}` : name;
+}
+
+function normalizeRow(row) {
+  const name =
+    row.nombre ||
+    row.Nombre ||
+    row.name ||
+    row.Name ||
+    row.cliente ||
+    row.Cliente ||
+    row.customer_name ||
+    row["Nombre completo"] ||
+    "";
+
+  const phone =
+    row.telefono ||
+    row.Teléfono ||
+    row.phone ||
+    row.Phone ||
+    row.celular ||
+    row.Celular ||
+    "";
+
+  const address =
+    row.direccion ||
+    row.Dirección ||
+    row.address ||
+    row.Address ||
+    row.domicilio ||
+    row.Domicilio ||
+    "";
+
+  const pppoeUser =
+    row.pppoe_user ||
+    row.usuario_pppoe ||
+    row.usuario ||
+    row.Usuario ||
+    row.username ||
+    row.Username ||
+    row.user ||
+    "";
+
+  const pppoePassword =
+    row.pppoe_password ||
+    row.password ||
+    row.Password ||
+    row.clave ||
+    row.Clave ||
+    "";
+
+  const ip =
+    row.ip ||
+    row.IP ||
+    row.ip_address ||
+    row["IP Address"] ||
+    "";
+
+  const plan =
+    row.plan ||
+    row.Plan ||
+    row.plan_name ||
+    row["Nombre Plan"] ||
+    "";
+
+  return {
+    name: String(name || pppoeUser || "").trim(),
+    phone: String(phone || "").trim(),
+    address: String(address || "").trim(),
+    pppoe_user: String(pppoeUser || "").trim(),
+    pppoe_password: String(pppoePassword || "").trim(),
+    ip: String(ip || "").trim(),
+    plan_name: String(plan || "").trim(),
+    status: "Activo",
+  };
+}
+
+function MobileImportClients() {
+  const [routers, setRouters] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [routerId, setRouterId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [source, setSource] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState("");
+
+  const loadRouters = async () => {
+    try {
+      const res = await axios.get(`${API}/routers`, getHeaders());
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.routers)
+        ? res.data.routers
+        : [];
+
+      setRouters(data);
+    } catch {
+      setRouters([]);
+    }
+  };
+
+  const loadClients = async () => {
+    try {
+      let res;
+
+      for (const url of [`${API}/customers`, `${API}/customers/list-all`, `${API}/clients`]) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch {}
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.customers)
+        ? res.data.customers
+        : Array.isArray(res?.data?.clients)
+        ? res.data.clients
+        : [];
+
+      setClients(data);
+    } catch {
+      setClients([]);
+    }
+  };
+
+  useEffect(() => {
+    loadRouters();
+    loadClients();
+  }, []);
+
+  const existingKeys = useMemo(() => {
+    const set = new Set();
+
+    clients.forEach((client) => {
+      [
+        client.pppoe_user,
+        client.username,
+        client.user,
+        client.phone,
+        client.telefono,
+        client.ip,
+        client.ip_address,
+        client.pppoe_ip,
+      ]
+        .filter(Boolean)
+        .forEach((value) => set.add(String(value).trim().toLowerCase()));
+    });
+
+    return set;
+  }, [clients]);
+
+  const previewRows = useMemo(() => {
+    return rows.map((row) => {
+      const duplicate =
+        existingKeys.has(String(row.pppoe_user || "").trim().toLowerCase()) ||
+        existingKeys.has(String(row.phone || "").trim().toLowerCase()) ||
+        existingKeys.has(String(row.ip || "").trim().toLowerCase());
+
+      return {
+        ...row,
+        duplicate,
+      };
+    });
+  }, [rows, existingKeys]);
+
+  const validRows = previewRows.filter((row) => !row.duplicate && row.name);
+
+  const importFromMikrotik = async () => {
+    if (!routerId) {
+      alert("Seleccioná un router.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setResult("");
+
+      let res;
+
+      const attempts = [
+        () => axios.get(`${API}/routers/${routerId}/pppoe-users`, getHeaders()),
+        () => axios.get(`${API}/routers/${routerId}/pppoe`, getHeaders()),
+        () => axios.get(`${API}/mikrotik/${routerId}/pppoe-users`, getHeaders()),
+        () => axios.post(`${API}/mikrotik/pppoe/list`, { router_id: Number(routerId) }, getHeaders()),
+        () => axios.post(`${API}/routers/${routerId}/import-pppoe-preview`, {}, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          res = await attempt();
+          break;
+        } catch (err) {
+          console.warn("Intento importar MikroTik falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.users)
+        ? res.data.users
+        : Array.isArray(res?.data?.pppoe_users)
+        ? res.data.pppoe_users
+        : Array.isArray(res?.data?.secrets)
+        ? res.data.secrets
+        : [];
+
+      const normalized = data.map((item) =>
+        normalizeRow({
+          name: item.name || item.username || item.user || item.comment,
+          phone: item.phone || "",
+          address: item.address || item.comment || "",
+          pppoe_user: item.username || item.name || item.user,
+          pppoe_password: item.password || item.pass || "",
+          ip: item.remote_address || item.remoteAddress || item.ip || item.address,
+          plan: item.profile || item.plan || item.service,
+        })
+      );
+
+      setRows(normalized);
+      setSource("mikrotik");
+      setResult(`${normalized.length} clientes encontrados en MikroTik.`);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudieron leer clientes desde MikroTik. Falta endpoint backend para listar PPPoE.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const importFromFile = async (file) => {
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      setResult("");
+
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      const normalized = json
+        .map(normalizeRow)
+        .filter((item) => item.name || item.pppoe_user || item.phone);
+
+      setRows(normalized);
+      setSource("excel");
+      setResult(`${normalized.length} filas leídas del archivo.`);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo leer el archivo. Usá .xlsx, .xls o .csv.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createCustomer = async (row) => {
+    const payload = {
+      name: row.name,
+      nombre: row.name,
+      full_name: row.name,
+      phone: row.phone,
+      telefono: row.phone,
+      address: row.address,
+      direccion: row.address,
+      pppoe_user: row.pppoe_user,
+      username: row.pppoe_user,
+      user: row.pppoe_user,
+      pppoe_password: row.pppoe_password,
+      password: row.pppoe_password,
+      ip: row.ip,
+      ip_address: row.ip,
+      pppoe_ip: row.ip,
+      plan_name: row.plan_name,
+      router_id: routerId ? Number(routerId) : null,
+      status: "active",
+      estado: "Activo",
+      active: true,
+      imported_from: source,
+    };
+
+    for (const attempt of [
+      () => axios.post(`${API}/customers`, payload, getHeaders()),
+      () => axios.post(`${API}/customers/`, payload, getHeaders()),
+      () => axios.post(`${API}/clients`, payload, getHeaders()),
+    ]) {
+      try {
+        await attempt();
+        return true;
+      } catch (err) {
+        console.warn("Intento crear cliente importado falló:", err?.response?.status || err?.message);
+      }
+    }
+
+    return false;
+  };
+
+  const importSelected = async () => {
+    if (!validRows.length) {
+      alert("No hay clientes válidos para importar.");
+      return;
+    }
+
+    const ok = confirm(`¿Importar ${validRows.length} clientes activos?`);
+
+    if (!ok) return;
+
+    try {
+      setImporting(true);
+
+      let created = 0;
+      let failed = 0;
+
+      for (const row of validRows) {
+        const okRow = await createCustomer(row);
+        if (okRow) created += 1;
+        else failed += 1;
+      }
+
+      await loadClients();
+
+      setResult(`Importación finalizada. Creados: ${created}. Fallidos: ${failed}.`);
+      alert(`Importación finalizada.\nCreados: ${created}\nFallidos: ${failed}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div className="hsm-import-page">
+      <section className="hsm-import-head">
+        <div>
+          <h2>Importar clientes</h2>
+          <p>MikroTik, Excel o CSV</p>
+        </div>
+
+        <button onClick={() => { setRows([]); setResult(""); }}>
+          Limpiar
+        </button>
+      </section>
+
+      <section className="hsm-import-card">
+        <h3>Desde MikroTik</h3>
+
+        <select value={routerId} onChange={(e) => setRouterId(e.target.value)}>
+          <option value="">Seleccionar router</option>
+          {routers.map((router) => (
+            <option key={router.id} value={router.id}>
+              {getRouterLabel(router)}
+            </option>
+          ))}
+        </select>
+
+        <button onClick={importFromMikrotik} disabled={loading}>
+          {loading ? "Leyendo..." : "Leer clientes PPPoE"}
+        </button>
+      </section>
+
+      <section className="hsm-import-card">
+        <h3>Desde Excel / CSV</h3>
+
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={(e) => importFromFile(e.target.files?.[0])}
+        />
+
+        <small>
+          Columnas aceptadas: nombre, telefono, direccion, usuario, password, ip, plan.
+        </small>
+      </section>
+
+      {result && (
+        <section className="hsm-import-result">
+          {result}
+        </section>
+      )}
+
+      <section className="hsm-import-stats">
+        <div>
+          <strong>{rows.length}</strong>
+          <span>Leídos</span>
+        </div>
+
+        <div>
+          <strong>{validRows.length}</strong>
+          <span>Válidos</span>
+        </div>
+
+        <div>
+          <strong>{previewRows.filter((r) => r.duplicate).length}</strong>
+          <span>Duplicados</span>
+        </div>
+      </section>
+
+      {rows.length > 0 && (
+        <button className="hsm-import-main-btn" onClick={importSelected} disabled={importing}>
+          {importing ? "Importando..." : `Importar ${validRows.length} clientes`}
+        </button>
+      )}
+
+      <section className="hsm-import-list">
+        {previewRows.map((row, index) => (
+          <article key={index} className={`hsm-import-row ${row.duplicate ? "duplicate" : ""}`}>
+            <div>
+              <h3>{getClientName(row)}</h3>
+              <span>{row.duplicate ? "Duplicado" : "Listo para importar"}</span>
+            </div>
+
+            <div className="hsm-import-info">
+              <p><b>Usuario:</b> {row.pppoe_user || "-"}</p>
+              <p><b>IP:</b> {row.ip || "-"}</p>
+              <p><b>Tel:</b> {row.phone || "-"}</p>
+              <p><b>Plan:</b> {row.plan_name || "-"}</p>
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+export default MobileImportClients;

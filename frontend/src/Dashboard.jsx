@@ -26,7 +26,7 @@ import {
   AreaChart,
 } from "recharts";
 
-const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
 
 const getAuthHeaders = () => ({
   headers: {
@@ -35,9 +35,12 @@ const getAuthHeaders = () => ({
 });
 
 function Dashboard({ onLogout }) {
+  const isMobileApp =
+    typeof window !== "undefined" && window.innerWidth <= 768;
   const role = localStorage.getItem("role");
 
   const [section, setSection] = useState("dashboard");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [invoices, setInvoices] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -1593,7 +1596,21 @@ ${detail}`);
 
   return (
     <div className="light-app min-h-screen bg-slate-50 text-slate-950 flex">
-      <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col">
+      {mobileMenuOpen && (
+        <div
+          className="hs-mobile-backdrop"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      <aside className={`hs-drawer ${mobileMenuOpen ? "hs-drawer-open" : ""}`}>
+        <button
+          type="button"
+          className="hs-drawer-close"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          ×
+        </button>
         <img src={logo} alt="HighSpeed" className="w-48 mb-8" />
 
         <div className="space-y-2 flex-1">
@@ -1721,21 +1738,8 @@ ${detail}`);
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-              🛡️
-            </div>
+        
 
-            <div>
-              <p className="font-bold text-slate-800">Sistema Seguro</p>
-              <p className="text-xs text-slate-500">
-                Tu información está protegida
-              </p>
-              <p className="text-xs text-green-600 mt-1">● En línea</p>
-            </div>
-          </div>
-        </div>
 
         <button
           onClick={onLogout}
@@ -1745,7 +1749,18 @@ ${detail}`);
         </button>
       </aside>
 
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="hs-app-main">
+        <div className="hs-mobile-topbar">
+          <button
+            type="button"
+            className="hs-menu-button"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            ☰
+          </button>
+          <div className="hs-mobile-brand">HighSpeed</div>
+        </div>
+        
         {section === "dashboard" && (
           <>
             <DashboardHome
@@ -3875,7 +3890,7 @@ ${detail}`);
         )}
 
         {section === "mikrotik" && canViewMikrotik && <RouterManager />}
-      </main>
+            </main>
     </div>
   );
 }

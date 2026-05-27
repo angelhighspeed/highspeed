@@ -1,0 +1,2632 @@
+@import "tailwindcss";
+
+/* BASE GENERAL */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* INPUTS BASE */
+.input-dark {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.input-dark:focus {
+  border-color: #2563eb;
+}
+
+.input-dark::placeholder {
+  color: #94a3b8;
+}
+
+/* BOTONES BASE */
+.btn-primary {
+  border-radius: 12px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 12px 18px;
+  font-weight: 700;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-success {
+  border-radius: 12px;
+  background: #22c55e;
+  color: #ffffff;
+  padding: 10px 16px;
+  font-weight: 700;
+}
+
+.btn-success:hover {
+  background: #16a34a;
+}
+
+/* MODO DÍA GLOBAL */
+.light-app {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.light-app main {
+  background: #f8fafc !important;
+}
+
+.light-app aside {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* LOGO */
+.light-app aside img {
+  max-width: 240px !important;
+  max-height: 110px !important;
+  object-fit: contain !important;
+}
+
+/* INPUTS EN MODO DÍA */
+.light-app .input-dark {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #dbe3ef !important;
+  border-radius: 12px !important;
+}
+
+.light-app .input-dark::placeholder {
+  color: #94a3b8 !important;
+}
+
+.light-app select.input-dark,
+.light-app textarea.input-dark,
+.light-app input.input-dark {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* CONVERTIR FONDOS OSCUROS A CLAROS */
+.light-app .bg-slate-950,
+.light-app .bg-slate-950\/70,
+.light-app .bg-slate-950\/80,
+.light-app .bg-slate-950\/90,
+.light-app .bg-slate-900,
+.light-app .bg-slate-900\/90,
+.light-app .bg-slate-800,
+.light-app .bg-slate-800\/60 {
+  background-color: #ffffff !important;
+}
+
+.light-app .bg-slate-700,
+.light-app .bg-slate-600 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* BORDES */
+.light-app .border-white\/5,
+.light-app .border-white\/10,
+.light-app .border-white\/20 {
+  border-color: #e2e8f0 !important;
+}
+
+/* TEXTOS */
+.light-app .text-white {
+  color: #0f172a !important;
+}
+
+.light-app .text-slate-300 {
+  color: #334155 !important;
+}
+
+.light-app .text-slate-400 {
+  color: #64748b !important;
+}
+
+.light-app .text-slate-500 {
+  color: #64748b !important;
+}
+
+.light-app .text-slate-600 {
+  color: #475569 !important;
+}
+
+.light-app .text-slate-700 {
+  color: #334155 !important;
+}
+
+.light-app .text-slate-800 {
+  color: #1e293b !important;
+}
+
+.light-app .text-slate-900,
+.light-app .text-slate-950 {
+  color: #0f172a !important;
+}
+
+/* TABLAS */
+.light-app table {
+  color: #0f172a !important;
+}
+
+.light-app thead,
+.light-app .bg-slate-950\/70 {
+  background: #f8fafc !important;
+}
+
+.light-app tbody tr {
+  background: #ffffff !important;
+}
+
+.light-app tbody tr:hover {
+  background: #f1f5f9 !important;
+}
+
+.light-app th {
+  color: #475569 !important;
+}
+
+.light-app td {
+  color: #0f172a !important;
+}
+
+/* FILAS EXPANDIDAS */
+.light-app tr.bg-slate-950\/70 {
+  background: #f8fafc !important;
+}
+
+/* BLOQUES DE DETALLE */
+.light-app .rounded-xl.bg-slate-900,
+.light-app .rounded-2xl.bg-slate-900,
+.light-app .rounded-2xl.bg-slate-900\/90 {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* BLOQUES DE CÓDIGO / RESULTADOS */
+.light-app pre {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+/* DROPDOWNS */
+.light-app select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+/* BOTONES CON CONTRASTE */
+.light-app .bg-blue-600,
+.light-app .bg-cyan-500,
+.light-app .bg-green-500,
+.light-app .bg-green-600,
+.light-app .bg-red-600,
+.light-app .bg-orange-500,
+.light-app .bg-purple-600 {
+  color: #ffffff !important;
+}
+
+.light-app .bg-yellow-500 {
+  color: #0f172a !important;
+}
+
+/* SOMBRAS */
+.light-app .shadow-xl {
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+.light-app .shadow-lg {
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08) !important;
+}
+
+.light-app .shadow-sm {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* SCROLL */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ===== Ajustes generales para APK / celular ===== */
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+/* Tablas: que no rompan la pantalla */
+table {
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  /* Contenedores principales */
+  main,
+  section,
+  .container,
+  .dashboard,
+  .content,
+  .page,
+  .panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  /* Sidebar / menú lateral */
+  aside,
+  .sidebar,
+  .menu-lateral {
+    width: 100% !important;
+    max-width: 100% !important;
+    position: relative !important;
+    height: auto !important;
+  }
+
+  /* Evita que el contenido quede corrido por menú fijo */
+  .ml-64,
+  .ml-72,
+  .pl-64,
+  .pl-72 {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Cards del dashboard */
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Formularios */
+  form {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  input,
+  select,
+  textarea {
+    width: 100% !important;
+  }
+
+  /* Botones en columna */
+  .actions,
+  .button-group,
+  .btn-group {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  /* Tablas con scroll horizontal */
+  table {
+    min-width: 700px;
+  }
+
+  .overflow-x-auto,
+  .table-container {
+    overflow-x: auto !important;
+    width: 100% !important;
+  }
+
+  /* Títulos */
+  h1 {
+    font-size: 1.4rem !important;
+  }
+
+  h2 {
+    font-size: 1.2rem !important;
+  }
+
+  h3 {
+    font-size: 1rem !important;
+  }
+}
+
+/* ===== FIX APK / MOBILE DASHBOARD ===== */
+
+@media (max-width: 768px) {
+  body,
+  html,
+  #root {
+    width: 100% !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Layout principal: menú arriba, contenido abajo */
+  .min-h-screen.flex {
+    flex-direction: column !important;
+    width: 100% !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Menú lateral convertido en menú superior */
+  .min-h-screen.flex > aside,
+  aside {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 34dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    position: relative !important;
+    flex: 0 0 auto !important;
+    z-index: 10 !important;
+  }
+
+  /* Contenido de módulos */
+  .min-h-screen.flex > main,
+  .min-h-screen.flex > .flex-1,
+  main,
+  .flex-1 {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    display: block !important;
+    padding: 12px !important;
+    margin: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+  }
+
+  /* Quitar márgenes típicos de sidebar desktop */
+  .ml-64,
+  .ml-72,
+  .pl-64,
+  .pl-72 {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Cards en una columna */
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tablas con scroll horizontal */
+  .overflow-x-auto,
+  .table-container {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  table {
+    min-width: 650px !important;
+  }
+
+  h1 {
+    font-size: 1.35rem !important;
+  }
+
+  h2 {
+    font-size: 1.15rem !important;
+  }
+
+  button {
+    white-space: normal !important;
+  }
+}
+
+/* =====================================================
+   HIGHSPEED APK MOBILE FIX
+   Menú lateral fijo + contenido adaptable
+   ===================================================== */
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    background: #020617;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* Layout principal cuando existe menú lateral */
+  .min-h-screen.flex {
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Sidebar / lista de módulos al costado */
+  .min-h-screen.flex > aside,
+  aside {
+    width: 92px !important;
+    min-width: 92px !important;
+    max-width: 92px !important;
+    height: 100dvh !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    z-index: 50 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 10px 6px !important;
+    background: #020617 !important;
+    border-right: 1px solid rgba(148, 163, 184, 0.18) !important;
+  }
+
+  /* Logo del menú lateral */
+  aside img {
+    max-width: 70px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  /* Botones del menú */
+  aside button,
+  aside a,
+  aside .menu-item {
+    width: 100% !important;
+    min-height: 46px !important;
+    padding: 6px 4px !important;
+    margin-bottom: 6px !important;
+    border-radius: 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 3px !important;
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    text-align: center !important;
+    white-space: normal !important;
+  }
+
+  aside svg,
+  aside i {
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+  }
+
+  /* Contenido principal a la derecha del menú */
+  .min-h-screen.flex > main,
+  .min-h-screen.flex > .flex-1,
+  aside ~ main,
+  aside ~ .flex-1,
+  aside ~ div {
+    margin-left: 92px !important;
+    width: calc(100vw - 92px) !important;
+    max-width: calc(100vw - 92px) !important;
+    min-width: 0 !important;
+    padding: 10px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  /* Quitar desplazamientos de escritorio */
+  .ml-64,
+  .ml-72,
+  .pl-64,
+  .pl-72,
+  .ml-60,
+  .pl-60 {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Header superior */
+  header,
+  .header,
+  .topbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 8px !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+
+  /* Títulos */
+  h1 {
+    font-size: 1.35rem !important;
+    line-height: 1.2 !important;
+  }
+
+  h2 {
+    font-size: 1.15rem !important;
+  }
+
+  h3 {
+    font-size: 1rem !important;
+  }
+
+  /* Cards y grillas */
+  .grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .card,
+  .rounded-2xl,
+  .rounded-3xl {
+    max-width: 100% !important;
+  }
+
+  /* Formularios */
+  form,
+  input,
+  select,
+  textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 14px !important;
+  }
+
+  /* Botones */
+  button {
+    max-width: 100% !important;
+    white-space: normal !important;
+    font-size: 12px !important;
+  }
+
+  /* Tablas con scroll horizontal */
+  .overflow-x-auto,
+  .table-container,
+  [class*="overflow-x"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  table {
+    min-width: 720px !important;
+    font-size: 12px !important;
+  }
+
+  th,
+  td {
+    padding: 8px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Modales */
+  .modal,
+  [role="dialog"] {
+    width: calc(100vw - 110px) !important;
+    max-width: calc(100vw - 110px) !important;
+    margin-left: 96px !important;
+  }
+
+  /* Evitar que elementos grandes rompan pantalla */
+  img,
+  canvas,
+  svg {
+    max-width: 100% !important;
+  }
+}
+
+/* ===== HIGHSPEED APK MOBILE FINAL ===== */
+
+@media (max-width: 768px) {
+  html, body, #root {
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  body {
+    margin: 0 !important;
+    background: #f8fafc !important;
+  }
+
+  .min-h-screen.flex {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  aside {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 105px !important;
+    min-width: 105px !important;
+    max-width: 105px !important;
+    height: 100dvh !important;
+    z-index: 999 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 8px 5px !important;
+    background: #020617 !important;
+    border-right: 1px solid #1e293b !important;
+  }
+
+  aside img {
+    width: 82px !important;
+    max-width: 82px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 6px auto 12px auto !important;
+  }
+
+  aside .mt-auto {
+    display: none !important;
+  }
+
+  aside button,
+  aside a {
+    width: 100% !important;
+    min-height: 42px !important;
+    padding: 5px 3px !important;
+    margin-bottom: 5px !important;
+    border-radius: 11px !important;
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    text-align: center !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 3px !important;
+  }
+
+  aside svg,
+  aside i {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  main,
+  .flex-1,
+  aside ~ main,
+  aside ~ div,
+  aside ~ .flex-1 {
+    margin-left: 105px !important;
+    width: calc(100vw - 105px) !important;
+    max-width: calc(100vw - 105px) !important;
+    min-width: 0 !important;
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .ml-64,
+  .ml-72,
+  .ml-60,
+  .pl-64,
+  .pl-72,
+  .pl-60 {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  header,
+  .header,
+  .topbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  h1 {
+    font-size: 1.35rem !important;
+    line-height: 1.15 !important;
+  }
+
+  h2 {
+    font-size: 1.1rem !important;
+  }
+
+  h3 {
+    font-size: 1rem !important;
+  }
+
+  .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .rounded-2xl,
+  .rounded-3xl {
+    max-width: 100% !important;
+    padding: 14px !important;
+  }
+
+  form,
+  input,
+  select,
+  textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-size: 13px !important;
+  }
+
+  .overflow-x-auto,
+  .table-container,
+  [class*="overflow-x"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  table {
+    min-width: 680px !important;
+    font-size: 12px !important;
+  }
+
+  th,
+  td {
+    padding: 8px !important;
+    white-space: nowrap !important;
+  }
+
+  img,
+  canvas,
+  svg {
+    max-width: 100% !important;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE FIX V14 ===== */
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  body {
+    margin: 0 !important;
+  }
+
+  /* Contenedor principal */
+  #root > div,
+  #root > div.min-h-screen,
+  #root > div[class*="min-h-screen"] {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Menú lateral: primer bloque */
+  #root > div > :first-child,
+  #root > div[class*="min-h-screen"] > :first-child {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 92px !important;
+    min-width: 92px !important;
+    max-width: 92px !important;
+    height: 100dvh !important;
+    z-index: 9999 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 8px 5px !important;
+    background: #020617 !important;
+    border-right: 1px solid rgba(148, 163, 184, 0.35) !important;
+  }
+
+  /* Contenido principal */
+  #root > div > :not(:first-child),
+  #root > div[class*="min-h-screen"] > :not(:first-child) {
+    margin-left: 92px !important;
+    width: calc(100vw - 92px) !important;
+    max-width: calc(100vw - 92px) !important;
+    min-width: 0 !important;
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Logo del menú */
+  #root > div > :first-child img,
+  #root > div[class*="min-h-screen"] > :first-child img {
+    width: 72px !important;
+    max-width: 72px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 6px auto 10px auto !important;
+  }
+
+  /* Ocultar bloque inferior del menú tipo Sistema Seguro */
+  #root > div > :first-child > :last-child,
+  #root > div[class*="min-h-screen"] > :first-child > :last-child {
+    display: none !important;
+  }
+
+  /* Botones del menú */
+  #root > div > :first-child button,
+  #root > div > :first-child a,
+  #root > div[class*="min-h-screen"] > :first-child button,
+  #root > div[class*="min-h-screen"] > :first-child a {
+    width: 100% !important;
+    min-height: 42px !important;
+    padding: 5px 3px !important;
+    margin-bottom: 5px !important;
+    border-radius: 10px !important;
+    font-size: 9px !important;
+    line-height: 1.05 !important;
+    white-space: normal !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+  }
+
+  #root > div > :first-child svg,
+  #root > div[class*="min-h-screen"] > :first-child svg {
+    width: 15px !important;
+    height: 15px !important;
+    margin: 0 !important;
+  }
+
+  /* Quitar márgenes desktop */
+  .ml-64,
+  .ml-72,
+  .ml-60,
+  .ml-56,
+  .ml-48,
+  .pl-64,
+  .pl-72,
+  .pl-60,
+  .pl-56,
+  .pl-48 {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Header */
+  header,
+  .header,
+  .topbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  h1 {
+    font-size: 1.25rem !important;
+    line-height: 1.15 !important;
+  }
+
+  h2 {
+    font-size: 1.05rem !important;
+  }
+
+  h3 {
+    font-size: 0.95rem !important;
+  }
+
+  p {
+    font-size: 0.9rem !important;
+  }
+
+  .grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .rounded-2xl,
+  .rounded-3xl {
+    max-width: 100% !important;
+    padding: 12px !important;
+  }
+
+  form,
+  input,
+  select,
+  textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-size: 12px !important;
+  }
+
+  .overflow-x-auto,
+  .table-container,
+  [class*="overflow-x"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  table {
+    min-width: 650px !important;
+    font-size: 11px !important;
+  }
+
+  th,
+  td {
+    padding: 7px !important;
+    white-space: nowrap !important;
+  }
+
+  img,
+  canvas,
+  svg {
+    max-width: 100% !important;
+  }
+}
+
+/* ===== DASHBOARD APK MOBILE DIRECT FIX V15 ===== */
+
+@media (max-width: 768px) {
+  .hs-sidebar {
+    width: 96px !important;
+    min-width: 96px !important;
+    max-width: 96px !important;
+    height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 8px 5px !important;
+  }
+
+  .hs-main {
+    margin-left: 96px !important;
+    width: calc(100vw - 96px) !important;
+    max-width: calc(100vw - 96px) !important;
+    min-width: 0 !important;
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .hs-sidebar img {
+    width: 72px !important;
+    max-width: 72px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 8px auto 12px auto !important;
+  }
+
+  .hs-sidebar button,
+  .hs-sidebar a {
+    width: 100% !important;
+    min-height: 42px !important;
+    padding: 5px 3px !important;
+    margin-bottom: 5px !important;
+    border-radius: 10px !important;
+    font-size: 9px !important;
+    line-height: 1.05 !important;
+    white-space: normal !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+  }
+
+  .hs-sidebar svg {
+    width: 15px !important;
+    height: 15px !important;
+    margin: 0 !important;
+  }
+
+  .hs-sidebar .mt-auto {
+    display: none !important;
+  }
+
+  .hs-main h1 {
+    font-size: 1.3rem !important;
+    line-height: 1.15 !important;
+  }
+
+  .hs-main h2 {
+    font-size: 1.1rem !important;
+  }
+
+  .hs-main .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .hs-main .rounded-2xl,
+  .hs-main .rounded-3xl {
+    max-width: 100% !important;
+    padding: 14px !important;
+  }
+
+  .hs-main .overflow-x-auto,
+  .hs-main [class*="overflow-x"] {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .hs-main table {
+    min-width: 680px !important;
+    font-size: 12px !important;
+  }
+
+  .hs-main th,
+  .hs-main td {
+    padding: 8px !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* ===== HIGHSPEED DASHBOARD MOBILE FINAL ===== */
+
+@media (max-width: 768px) {
+  .hs-sidebar {
+    width: 92px !important;
+    min-width: 92px !important;
+    max-width: 92px !important;
+    height: 100dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 8px 5px !important;
+  }
+
+  .hs-main {
+    margin-left: 92px !important;
+    width: calc(100vw - 92px) !important;
+    max-width: calc(100vw - 92px) !important;
+    min-width: 0 !important;
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .hs-sidebar img {
+    width: 72px !important;
+    max-width: 72px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 8px auto 12px auto !important;
+  }
+
+  .hs-sidebar .mt-auto {
+    display: none !important;
+  }
+
+  .hs-sidebar button,
+  .hs-sidebar a {
+    width: 100% !important;
+    min-height: 42px !important;
+    padding: 5px 3px !important;
+    margin-bottom: 5px !important;
+    border-radius: 10px !important;
+    font-size: 9px !important;
+    line-height: 1.05 !important;
+    white-space: normal !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+  }
+
+  .hs-sidebar svg {
+    width: 15px !important;
+    height: 15px !important;
+    margin: 0 !important;
+  }
+
+  .hs-main .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .hs-main table {
+    min-width: 680px !important;
+    font-size: 12px !important;
+  }
+
+  .hs-main .overflow-x-auto,
+  .hs-main [class*="overflow-x"] {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+}
+
+/* ===== HIGHSPEED APK MOBILE SCALE V20 ===== */
+
+@media (max-width: 768px) {
+  .hs-sidebar {
+    width: 86px !important;
+    min-width: 86px !important;
+    max-width: 86px !important;
+  }
+
+  .hs-sidebar img {
+    width: 68px !important;
+    max-width: 68px !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 6px auto 10px auto !important;
+  }
+
+  .hs-sidebar .mt-auto {
+    display: none !important;
+  }
+
+  .hs-sidebar button,
+  .hs-sidebar a {
+    width: 100% !important;
+    min-height: 40px !important;
+    padding: 4px 2px !important;
+    margin-bottom: 4px !important;
+    border-radius: 10px !important;
+    font-size: 8.5px !important;
+    line-height: 1.05 !important;
+    white-space: normal !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+  }
+
+  .hs-sidebar svg {
+    width: 14px !important;
+    height: 14px !important;
+    margin: 0 !important;
+  }
+
+  .hs-main {
+    margin-left: 86px !important;
+    width: calc(100vw - 86px) !important;
+    max-width: calc(100vw - 86px) !important;
+    min-width: 0 !important;
+    padding: 8px !important;
+    overflow-x: hidden !important;
+  }
+
+  .hs-mobile-content {
+    transform: scale(0.72);
+    transform-origin: top left;
+    width: calc((100vw - 86px) / 0.72);
+    min-height: calc(100dvh / 0.72);
+  }
+
+  .hs-mobile-content .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .hs-mobile-content h1 {
+    font-size: 1.5rem !important;
+  }
+
+  .hs-mobile-content h2 {
+    font-size: 1.2rem !important;
+  }
+
+  .hs-mobile-content table {
+    min-width: 650px !important;
+    font-size: 12px !important;
+  }
+
+  .hs-mobile-content .overflow-x-auto,
+  .hs-mobile-content [class*="overflow-x"] {
+    overflow-x: auto !important;
+    width: 100% !important;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE DRAWER MENU ===== */
+
+.hs-drawer {
+  width: 18rem;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.hs-app-main {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.hs-mobile-topbar,
+.hs-drawer-close,
+.hs-mobile-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .light-app {
+    display: block !important;
+    width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+    background: #f8fafc !important;
+  }
+
+  .hs-app-main {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    padding: 0 12px 16px 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .hs-mobile-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 18px !important;
+    height: 58px !important;
+    margin: 0 -12px 14px -12px !important;
+    padding: 0 18px !important;
+    background: #00b98a !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 9000 !important;
+  }
+
+  .hs-menu-button {
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 30px !important;
+    line-height: 1 !important;
+    padding: 4px 8px !important;
+    width: auto !important;
+    min-width: 44px !important;
+  }
+
+  .hs-mobile-brand {
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    letter-spacing: .3px !important;
+  }
+
+  .hs-mobile-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 9998 !important;
+  }
+
+  .hs-drawer {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 76vw !important;
+    max-width: 330px !important;
+    height: 100dvh !important;
+    z-index: 9999 !important;
+    transform: translateX(-105%) !important;
+    transition: transform .25s ease !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 22px 18px !important;
+    background: linear-gradient(180deg, #00b98a 0%, #00a777 100%) !important;
+    border-right: none !important;
+    color: white !important;
+  }
+
+  .hs-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  .hs-drawer-close {
+    display: block !important;
+    position: absolute !important;
+    right: 12px !important;
+    top: 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+  }
+
+  .hs-drawer img {
+    width: 160px !important;
+    max-width: 75% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 34px auto 22px auto !important;
+    filter: brightness(0) invert(1);
+  }
+
+  .hs-drawer .mt-auto {
+    display: none !important;
+  }
+
+  .hs-drawer button,
+  .hs-drawer a {
+    width: 100% !important;
+    min-height: 52px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 8px !important;
+    border-radius: 16px !important;
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    color: white !important;
+  }
+
+  .hs-drawer button.bg-blue-600,
+  .hs-drawer button[class*="bg-blue"],
+  .hs-drawer a[class*="bg-blue"] {
+    background: white !important;
+    color: #00a777 !important;
+  }
+
+  .hs-drawer svg {
+    width: 22px !important;
+    height: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .hs-app-main h1 {
+    font-size: 1.65rem !important;
+    line-height: 1.15 !important;
+  }
+
+  .hs-app-main .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .hs-app-main .rounded-2xl,
+  .hs-app-main .rounded-3xl {
+    max-width: 100% !important;
+  }
+
+  .hs-app-main .overflow-x-auto,
+  .hs-app-main [class*="overflow-x"] {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .hs-app-main table {
+    min-width: 680px !important;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE DRAWER REAL FINAL V23 ===== */
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    overflow-x: hidden !important;
+    background: #f8fafc !important;
+  }
+
+  #root > .light-app {
+    display: block !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    overflow-x: hidden !important;
+    background: #f8fafc !important;
+  }
+
+  /* Fondo oscuro cuando se abre el menú */
+  #root > .light-app > .hs-mobile-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0, 0, 0, 0.55) !important;
+    z-index: 9998 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+  }
+
+  /* Menú lateral cerrado por defecto */
+  #root > .light-app > aside.hs-drawer {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 78vw !important;
+    max-width: 330px !important;
+    min-width: 260px !important;
+    height: 100dvh !important;
+    z-index: 9999 !important;
+    transform: translateX(-110%) !important;
+    transition: transform 0.25s ease !important;
+    margin: 0 !important;
+    padding: 24px 18px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: linear-gradient(180deg, #00b98a 0%, #00a777 100%) !important;
+    border: 0 !important;
+    color: white !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Menú abierto */
+  #root > .light-app > aside.hs-drawer.hs-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Botón cerrar */
+  #root > .light-app > aside.hs-drawer .hs-drawer-close {
+    display: block !important;
+    position: absolute !important;
+    right: 12px !important;
+    top: 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+  }
+
+  /* Ocultar Sistema Seguro dentro del menú */
+  #root > .light-app > aside.hs-drawer .mt-auto,
+  #root > .light-app > aside.hs-drawer > div:last-child {
+    display: none !important;
+  }
+
+  /* Logo dentro del menú */
+  #root > .light-app > aside.hs-drawer img {
+    width: 150px !important;
+    max-width: 75% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 36px auto 24px auto !important;
+  }
+
+  /* Items del menú */
+  #root > .light-app > aside.hs-drawer button,
+  #root > .light-app > aside.hs-drawer a {
+    width: 100% !important;
+    min-height: 52px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 8px !important;
+    border-radius: 16px !important;
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    color: white !important;
+    background: transparent !important;
+  }
+
+  #root > .light-app > aside.hs-drawer button[class*="bg-blue"],
+  #root > .light-app > aside.hs-drawer button.bg-blue-600 {
+    background: white !important;
+    color: #00a777 !important;
+  }
+
+  #root > .light-app > aside.hs-drawer svg {
+    width: 22px !important;
+    height: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Contenido principal: pantalla completa, sin margen izquierdo */
+  #root > .light-app > main.hs-app-main {
+    display: block !important;
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    min-height: 100dvh !important;
+    padding: 0 12px 18px 12px !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+    background: #f8fafc !important;
+    transform: none !important;
+  }
+
+  /* Barra superior verde */
+  #root > .light-app > main.hs-app-main .hs-mobile-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 18px !important;
+    height: 58px !important;
+    margin: 0 -12px 16px -12px !important;
+    padding: 0 18px !important;
+    width: calc(100% + 24px) !important;
+    background: #00b98a !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18) !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 9000 !important;
+    box-sizing: border-box !important;
+  }
+
+  #root > .light-app > main.hs-app-main .hs-menu-button {
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 30px !important;
+    line-height: 1 !important;
+    padding: 4px 8px !important;
+    width: auto !important;
+    min-width: 44px !important;
+  }
+
+  #root > .light-app > main.hs-app-main .hs-mobile-brand {
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px !important;
+  }
+
+  /* Quitar cualquier margen viejo */
+  .hs-main,
+  .hs-mobile-content {
+    margin-left: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Contenido responsivo */
+  #root > .light-app > main.hs-app-main h1 {
+    font-size: 1.55rem !important;
+    line-height: 1.15 !important;
+  }
+
+  #root > .light-app > main.hs-app-main .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  #root > .light-app > main.hs-app-main .rounded-2xl,
+  #root > .light-app > main.hs-app-main .rounded-3xl {
+    max-width: 100% !important;
+  }
+
+  #root > .light-app > main.hs-app-main .overflow-x-auto,
+  #root > .light-app > main.hs-app-main [class*="overflow-x"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  #root > .light-app > main.hs-app-main table {
+    min-width: 680px !important;
+  }
+}
+
+/* ===== HIGHSPEED MENU MODULOS FIX V26 ===== */
+
+@media (max-width: 768px) {
+  /* La pantalla principal queda bien sin margen izquierdo */
+  #root > div.light-app > main.hs-app-main {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    padding: 0 12px 18px 12px !important;
+    background: #f8fafc !important;
+  }
+
+  /* Drawer cerrado */
+  #root > div.light-app > aside.hs-drawer {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 82vw !important;
+    max-width: 340px !important;
+    min-width: 270px !important;
+    height: 100dvh !important;
+    z-index: 2147483601 !important;
+    transform: translateX(-110%) !important;
+    transition: transform .25s ease !important;
+    margin: 0 !important;
+    padding: 24px 18px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: linear-gradient(180deg, #00b98a 0%, #009f72 100%) !important;
+    border: 0 !important;
+    color: white !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Drawer abierto */
+  #root > div.light-app > aside.hs-drawer.hs-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Fondo oscuro */
+  #root > div.light-app > .hs-mobile-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 2147483600 !important;
+  }
+
+  /* MUY IMPORTANTE: no ocultar la lista de módulos */
+  #root > div.light-app > aside.hs-drawer > div,
+  #root > div.light-app > aside.hs-drawer .space-y-1,
+  #root > div.light-app > aside.hs-drawer .space-y-2,
+  #root > div.light-app > aside.hs-drawer .flex-1 {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Ocultar solo el bloque inferior viejo si existe */
+  #root > div.light-app > aside.hs-drawer .mt-auto {
+    display: none !important;
+  }
+
+  /* Botón cerrar */
+  #root > div.light-app > aside.hs-drawer .hs-drawer-close {
+    display: block !important;
+    position: absolute !important;
+    right: 12px !important;
+    top: 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+    width: auto !important;
+    min-width: auto !important;
+  }
+
+  /* Logo */
+  #root > div.light-app > aside.hs-drawer img {
+    width: 150px !important;
+    max-width: 75% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 36px auto 24px auto !important;
+  }
+
+  /* Botones de módulos */
+  #root > div.light-app > aside.hs-drawer button:not(.hs-drawer-close),
+  #root > div.light-app > aside.hs-drawer a {
+    width: 100% !important;
+    min-height: 52px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 8px !important;
+    border-radius: 16px !important;
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    color: white !important;
+    background: transparent !important;
+  }
+
+  /* Módulo activo */
+  #root > div.light-app > aside.hs-drawer button[class*="bg-blue"],
+  #root > div.light-app > aside.hs-drawer button.bg-blue-600 {
+    background: white !important;
+    color: #009f72 !important;
+  }
+
+  #root > div.light-app > aside.hs-drawer svg {
+    width: 22px !important;
+    height: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Barra verde superior */
+  #root > div.light-app > main.hs-app-main .hs-mobile-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 18px !important;
+    height: 58px !important;
+    margin: 0 -12px 16px -12px !important;
+    padding: 0 18px !important;
+    width: calc(100% + 24px) !important;
+    background: #00b98a !important;
+    color: white !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 9000 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+  }
+
+  #root > div.light-app > main.hs-app-main .hs-menu-button {
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 30px !important;
+    line-height: 1 !important;
+    padding: 4px 8px !important;
+    min-width: 44px !important;
+  }
+
+  #root > div.light-app > main.hs-app-main .hs-mobile-brand {
+    color: white !important;
+    font-size: 24px !important;
+    font-weight: 600 !important;
+  }
+}
+
+/* ===== HIGHSPEED MENU MODULOS FIX V26 ===== */
+
+@media (max-width: 768px) {
+  /* La pantalla principal queda bien sin margen izquierdo */
+  #root > div.light-app > main.hs-app-main {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    padding: 0 12px 18px 12px !important;
+    background: #f8fafc !important;
+  }
+
+  /* Drawer cerrado */
+  #root > div.light-app > aside.hs-drawer {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 82vw !important;
+    max-width: 340px !important;
+    min-width: 270px !important;
+    height: 100dvh !important;
+    z-index: 2147483601 !important;
+    transform: translateX(-110%) !important;
+    transition: transform .25s ease !important;
+    margin: 0 !important;
+    padding: 24px 18px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: linear-gradient(180deg, #00b98a 0%, #009f72 100%) !important;
+    border: 0 !important;
+    color: white !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Drawer abierto */
+  #root > div.light-app > aside.hs-drawer.hs-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Fondo oscuro */
+  #root > div.light-app > .hs-mobile-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 2147483600 !important;
+  }
+
+  /* MUY IMPORTANTE: no ocultar la lista de módulos */
+  #root > div.light-app > aside.hs-drawer > div,
+  #root > div.light-app > aside.hs-drawer .space-y-1,
+  #root > div.light-app > aside.hs-drawer .space-y-2,
+  #root > div.light-app > aside.hs-drawer .flex-1 {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Ocultar solo el bloque inferior viejo si existe */
+  #root > div.light-app > aside.hs-drawer .mt-auto {
+    display: none !important;
+  }
+
+  /* Botón cerrar */
+  #root > div.light-app > aside.hs-drawer .hs-drawer-close {
+    display: block !important;
+    position: absolute !important;
+    right: 12px !important;
+    top: 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+    width: auto !important;
+    min-width: auto !important;
+  }
+
+  /* Logo */
+  #root > div.light-app > aside.hs-drawer img {
+    width: 150px !important;
+    max-width: 75% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 36px auto 24px auto !important;
+  }
+
+  /* Botones de módulos */
+  #root > div.light-app > aside.hs-drawer button:not(.hs-drawer-close),
+  #root > div.light-app > aside.hs-drawer a {
+    width: 100% !important;
+    min-height: 52px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 8px !important;
+    border-radius: 16px !important;
+    font-size: 16px !important;
+    line-height: 1.2 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    color: white !important;
+    background: transparent !important;
+  }
+
+  /* Módulo activo */
+  #root > div.light-app > aside.hs-drawer button[class*="bg-blue"],
+  #root > div.light-app > aside.hs-drawer button.bg-blue-600 {
+    background: white !important;
+    color: #009f72 !important;
+  }
+
+  #root > div.light-app > aside.hs-drawer svg {
+    width: 22px !important;
+    height: 22px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Barra verde superior */
+  #root > div.light-app > main.hs-app-main .hs-mobile-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 18px !important;
+    height: 58px !important;
+    margin: 0 -12px 16px -12px !important;
+    padding: 0 18px !important;
+    width: calc(100% + 24px) !important;
+    background: #00b98a !important;
+    color: white !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 9000 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+  }
+
+  #root > div.light-app > main.hs-app-main .hs-menu-button {
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 30px !important;
+    line-height: 1 !important;
+    padding: 4px 8px !important;
+    min-width: 44px !important;
+  }
+
+  #root > div.light-app > main.hs-app-main .hs-mobile-brand {
+    color: white !important;
+    font-size: 24px !important;
+    font-weight: 600 !important;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE APP CLEAN ===== */
+
+.mobile-app {
+  width: 100vw;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.mobile-topbar {
+  height: 58px;
+  background: #00b98a;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+}
+
+.mobile-menu-btn {
+  background: transparent;
+  border: 0;
+  color: white;
+  font-size: 30px;
+  line-height: 1;
+  width: 44px;
+  height: 44px;
+}
+
+.mobile-title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.mobile-content {
+  padding: 14px;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 1998;
+}
+
+.mobile-drawer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 82vw;
+  max-width: 340px;
+  height: 100dvh;
+  background: linear-gradient(180deg, #00b98a 0%, #009f72 100%);
+  color: white;
+  z-index: 1999;
+  transform: translateX(-110%);
+  transition: transform .25s ease;
+  padding: 22px 18px;
+  overflow-y: auto;
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+.mobile-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: transparent;
+  border: 0;
+  color: white;
+  font-size: 36px;
+}
+
+.mobile-logo {
+  width: 160px;
+  max-width: 75%;
+  display: block;
+  margin: 34px auto 24px auto;
+  object-fit: contain;
+}
+
+.mobile-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-nav button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 16px;
+}
+
+.mobile-nav button span {
+  font-size: 22px;
+  width: 28px;
+}
+
+.mobile-nav button.active {
+  background: white;
+  color: #009f72;
+}
+
+.mobile-nav button.logout {
+  margin-top: 16px;
+  background: rgba(255,255,255,.16);
+}
+
+.mobile-content .grid {
+  grid-template-columns: 1fr !important;
+}
+
+.mobile-content table {
+  min-width: 680px;
+  font-size: 12px;
+}
+
+.mobile-content .overflow-x-auto,
+.mobile-content [class*="overflow-x"] {
+  overflow-x: auto !important;
+  width: 100% !important;
+}
+
+.mobile-content input,
+.mobile-content select,
+.mobile-content textarea,
+.mobile-content button {
+  max-width: 100%;
+}
+
+@media (min-width: 769px) {
+  .mobile-app {
+    display: none;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE CLEAN OVERRIDE V29 ===== */
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    background: #f1f5f9 !important;
+  }
+
+  /* Anular reglas viejas que convertían el primer hijo en sidebar */
+  #root > div.mobile-app,
+  #root > div.mobile-app.min-h-screen {
+    display: block !important;
+    position: relative !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    background: #f1f5f9 !important;
+  }
+
+  #root > div.mobile-app > :first-child {
+    position: sticky !important;
+    top: 0 !important;
+    left: auto !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    height: 58px !important;
+    min-height: 58px !important;
+    max-height: 58px !important;
+    transform: none !important;
+    margin: 0 !important;
+    padding: 0 16px !important;
+    background: #00b98a !important;
+    border: 0 !important;
+    z-index: 1000 !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Barra superior */
+  #root > div.mobile-app > header.mobile-topbar,
+  .mobile-app .mobile-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 16px !important;
+    position: sticky !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 58px !important;
+    margin: 0 !important;
+    padding: 0 16px !important;
+    background: #00b98a !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+    z-index: 1000 !important;
+    box-sizing: border-box !important;
+  }
+
+  .mobile-app .mobile-menu-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 30px !important;
+    line-height: 1 !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    padding: 0 !important;
+  }
+
+  .mobile-app .mobile-title {
+    color: white !important;
+    font-size: 22px !important;
+    font-weight: 700 !important;
+  }
+
+  /* Contenido principal sin margen lateral */
+  #root > div.mobile-app > main.mobile-content,
+  .mobile-app .mobile-content {
+    display: block !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    padding: 14px !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+    background: #f1f5f9 !important;
+    transform: none !important;
+  }
+
+  /* Drawer cerrado */
+  #root > div.mobile-app > aside.mobile-drawer,
+  .mobile-app .mobile-drawer {
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 82vw !important;
+    max-width: 340px !important;
+    min-width: 270px !important;
+    height: 100dvh !important;
+    margin: 0 !important;
+    padding: 22px 18px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: linear-gradient(180deg, #00b98a 0%, #009f72 100%) !important;
+    color: white !important;
+    border: 0 !important;
+    box-sizing: border-box !important;
+    z-index: 2000 !important;
+    transform: translateX(-110%) !important;
+    transition: transform .25s ease !important;
+  }
+
+  #root > div.mobile-app > aside.mobile-drawer.open,
+  .mobile-app .mobile-drawer.open {
+    transform: translateX(0) !important;
+  }
+
+  .mobile-app .mobile-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 1999 !important;
+  }
+
+  .mobile-app .mobile-close {
+    display: block !important;
+    position: absolute !important;
+    top: 8px !important;
+    right: 12px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 36px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+    width: auto !important;
+    min-width: auto !important;
+  }
+
+  .mobile-app .mobile-logo {
+    width: 150px !important;
+    max-width: 75% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 34px auto 24px auto !important;
+  }
+
+  .mobile-app .mobile-nav {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .mobile-app .mobile-nav button {
+    width: 100% !important;
+    min-height: 52px !important;
+    border: 0 !important;
+    border-radius: 16px !important;
+    background: transparent !important;
+    color: white !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    padding: 10px 14px !important;
+    text-align: left !important;
+    font-size: 16px !important;
+  }
+
+  .mobile-app .mobile-nav button.active {
+    background: white !important;
+    color: #009f72 !important;
+  }
+
+  .mobile-app .mobile-nav button span {
+    font-size: 22px !important;
+    width: 28px !important;
+    min-width: 28px !important;
+  }
+
+  .mobile-app .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .mobile-app table {
+    min-width: 680px !important;
+    font-size: 12px !important;
+  }
+
+  .mobile-app .overflow-x-auto,
+  .mobile-app [class*="overflow-x"] {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+}
+
+/* ===== HIGHSPEED MOBILE COMPACT V33 ===== */
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    background: #f1f5f9 !important;
+  }
+
+  .hsm33-app {
+    display: block !important;
+    position: relative !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    background: #f1f5f9 !important;
+  }
+
+  .hsm33-shield {
+    display: none !important;
+  }
+
+  .hsm33-topbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 16px !important;
+    width: 100vw !important;
+    height: 62px !important;
+    padding: 0 18px !important;
+    background: #00b98a !important;
+    color: white !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000 !important;
+    box-sizing: border-box !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+  }
+
+  .hsm33-menu-btn {
+    width: 46px !important;
+    min-width: 46px !important;
+    height: 46px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    padding: 0 !important;
+  }
+
+  .hsm33-title {
+    color: white !important;
+    font-size: 25px !important;
+    font-weight: 800 !important;
+  }
+
+  .hsm33-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    padding: 14px !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .hsm33-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 1999 !important;
+  }
+
+  .hsm33-drawer {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 84vw !important;
+    max-width: 350px !important;
+    min-width: 280px !important;
+    height: 100dvh !important;
+    background: linear-gradient(180deg, #00b98a 0%, #009f72 100%) !important;
+    color: white !important;
+    z-index: 2000 !important;
+    transform: translateX(-110%) !important;
+    transition: transform .25s ease !important;
+    padding: 14px 14px 18px 14px !important;
+    box-sizing: border-box !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .hsm33-drawer.open {
+    transform: translateX(0) !important;
+  }
+
+  .hsm33-close {
+    position: absolute !important;
+    top: 6px !important;
+    right: 10px !important;
+    background: transparent !important;
+    border: 0 !important;
+    color: white !important;
+    font-size: 34px !important;
+    line-height: 1 !important;
+    padding: 4px !important;
+  }
+
+  .hsm33-logo {
+    width: 130px !important;
+    max-width: 68% !important;
+    height: auto !important;
+    display: block !important;
+    margin: 30px auto 14px auto !important;
+    background: white !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+  }
+
+  .hsm33-nav {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    padding-bottom: 24px !important;
+  }
+
+  .hsm33-nav button {
+    width: 100% !important;
+    min-height: 42px !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    padding: 7px 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    text-align: left !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    background: transparent !important;
+    color: white !important;
+  }
+
+  .hsm33-nav button.active {
+    background: white !important;
+    color: #009f72 !important;
+  }
+
+  .hsm33-nav button.logout {
+    margin-top: 8px !important;
+    border: 1px solid rgba(255,255,255,.35) !important;
+    background: rgba(255,255,255,.12) !important;
+  }
+
+  .hsm33-nav button span {
+    font-size: 20px !important;
+    width: 26px !important;
+    min-width: 26px !important;
+  }
+
+  .hsm33-home {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+  }
+
+  .hsm33-card {
+    background: white !important;
+    border-radius: 22px !important;
+    padding: 18px !important;
+    box-shadow: 0 2px 10px rgba(15,23,42,.12) !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  .hsm33-card h1 {
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    margin: 0 !important;
+  }
+
+  .hsm33-card p {
+    color: #64748b !important;
+    font-size: 16px !important;
+    margin-top: 8px !important;
+  }
+
+  .hsm33-module-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .hsm33-module-card {
+    min-height: 92px !important;
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 18px !important;
+    padding: 14px !important;
+    text-align: left !important;
+    box-shadow: 0 2px 8px rgba(15,23,42,.10) !important;
+    color: #0f172a !important;
+  }
+
+  .hsm33-module-card span {
+    font-size: 32px !important;
+    display: block !important;
+  }
+
+  .hsm33-module-card b {
+    font-size: 14px !important;
+    display: block !important;
+    margin-top: 8px !important;
+  }
+
+  .hsm33-content table {
+    min-width: 680px !important;
+    font-size: 12px !important;
+  }
+
+  .hsm33-content .overflow-x-auto,
+  .hsm33-content [class*="overflow-x"] {
+    width: 100% !important;
+    overflow-x: auto !important;
+  }
+}

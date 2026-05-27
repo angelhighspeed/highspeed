@@ -1,0 +1,594 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token") || localStorage.getItem("access_token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  id: null,
+  name: "",
+  profile: "",
+  download: "",
+  upload: "",
+  price: "",
+  type: "PPPoE",
+  burst: "",
+  rules: "",
+  active: true,
+};
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getPlanName(plan) {
+  return (
+    plan.name ||
+    plan.nombre ||
+    plan.plan_name ||
+    plan.nombre_plan ||
+    `Plan #${plan.id || "-"}`
+  );
+}
+
+function getProfile(plan) {
+  return (
+    plan.profile ||
+    plan.perfil ||
+    plan.mikrotik_profile ||
+    plan.pppoe_profile ||
+    "-"
+  );
+}
+
+function getDownload(plan) {
+  return (
+    plan.download ||
+    plan.descarga ||
+    plan.download_speed ||
+    plan.velocidad_bajada ||
+    plan.bajada ||
+    "-"
+  );
+}
+
+function getUpload(plan) {
+  return (
+    plan.upload ||
+    plan.subida ||
+    plan.upload_speed ||
+    plan.velocidad_subida ||
+    "-"
+  );
+}
+
+function getPrice(plan) {
+  return (
+    plan.price ||
+    plan.precio ||
+    plan.amount ||
+    plan.monto ||
+    0
+  );
+}
+
+function getType(plan) {
+  return (
+    plan.type ||
+    plan.tipo ||
+    plan.plan_type ||
+    "PPPoE"
+  );
+}
+
+function isActive(plan) {
+  if (plan.active === false) return false;
+  if (plan.is_active === false) return false;
+  if (String(plan.status || plan.estado || "").toLowerCase().includes("inactivo")) return false;
+  return true;
+}
+
+function planToForm(plan) {
+  return {
+    id: plan.id || null,
+    name: getPlanName(plan),
+    profile: getProfile(plan) === "-" ? "" : getProfile(plan),
+    download: getDownload(plan) === "-" ? "" : getDownload(plan),
+    upload: getUpload(plan) === "-" ? "" : getUpload(plan),
+    price: getPrice(plan),
+    type: getType(plan),
+    burst: plan.burst || plan.burst_limit || plan.burst_limit_info || "",
+    rules: plan.rules || plan.reglas || plan.mikrotik_rules || "",
+    active: isActive(plan),
+  };
+}
+
+function MobilePlans() {
+  const [plans, setPlans] = useState([]);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const loadPlans = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/plans`,
+        `${API}/internet-plans`,
+        `${API}/pppoe-plans`,
+        `${API}/plans/internet`,
+        `${API}/mikrotik/plans`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento planes falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.plans)
+        ? res.data.plans
+        : Array.isArray(res?.data?.internet_plans)
+        ? res.data.internet_plans
+        : [];
+
+      setPlans(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los planes.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  const stats = useMemo(() => {
+    let activos = 0;
+    let inactivos = 0;
+
+    plans.forEach((plan) => {
+      if (isActive(plan)) activos += 1;
+      else inactivos += 1;
+    });
+
+    return {
+      total: plans.length,
+      activos,
+      inactivos,
+    };
+  }, [plans]);
+
+  const filteredPlans = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return plans.filter((plan) => {
+      const name = getPlanName(plan).toLowerCase();
+      const profile = getProfile(plan).toLowerCase();
+      const type = getType(plan).toLowerCase();
+
+      const text = [
+        name,
+        profile,
+        type,
+        getDownload(plan),
+        getUpload(plan),
+        getPrice(plan),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+      const matchType = typeFilter === "todos" || type.includes(typeFilter.toLowerCase());
+
+      return matchText && matchType;
+    });
+  }, [plans, query, typeFilter]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openNew = () => {
+    setForm(emptyForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (plan) => {
+    setForm(planToForm(plan));
+    setShowForm(true);
+  };
+
+  const savePlan = async (e) => {
+    e.preventDefault();
+
+    if (!form.name.trim()) {
+      alert("Ingresá el nombre del plan.");
+      return;
+    }
+
+    if (!form.download.trim()) {
+      alert("Ingresá la velocidad de bajada.");
+      return;
+    }
+
+    if (!form.upload.trim()) {
+      alert("Ingresá la velocidad de subida.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        ...form,
+        nombre: form.name,
+        plan_name: form.name,
+        perfil: form.profile,
+        mikrotik_profile: form.profile,
+        descarga: form.download,
+        download_speed: form.download,
+        velocidad_bajada: form.download,
+        subida: form.upload,
+        upload_speed: form.upload,
+        velocidad_subida: form.upload,
+        precio: Number(form.price || 0),
+        price: Number(form.price || 0),
+        tipo: form.type,
+        type: form.type,
+        reglas: form.rules,
+        mikrotik_rules: form.rules,
+        is_active: form.active,
+        status: form.active ? "active" : "inactive",
+      };
+
+      let saved = false;
+
+      if (form.id) {
+        const attempts = [
+          () => axios.put(`${API}/plans/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/plans/${form.id}`, payload, getHeaders()),
+          () => axios.put(`${API}/internet-plans/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/internet-plans/${form.id}`, payload, getHeaders()),
+          () => axios.put(`${API}/pppoe-plans/${form.id}`, payload, getHeaders()),
+          () => axios.patch(`${API}/pppoe-plans/${form.id}`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento editar plan falló:", err?.response?.status || err?.message);
+          }
+        }
+      } else {
+        const attempts = [
+          () => axios.post(`${API}/plans`, payload, getHeaders()),
+          () => axios.post(`${API}/internet-plans`, payload, getHeaders()),
+          () => axios.post(`${API}/pppoe-plans`, payload, getHeaders()),
+        ];
+
+        for (const attempt of attempts) {
+          try {
+            await attempt();
+            saved = true;
+            break;
+          } catch (err) {
+            console.warn("Intento crear plan falló:", err?.response?.status || err?.message);
+          }
+        }
+      }
+
+      if (!saved) {
+        throw new Error("No se encontró endpoint válido para guardar planes.");
+      }
+
+      setShowForm(false);
+      setForm(emptyForm);
+      await loadPlans();
+
+      alert(form.id ? "Plan actualizado correctamente." : "Plan creado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo guardar el plan. Revisá el endpoint del backend.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deletePlan = async (plan) => {
+    const id = plan.id;
+
+    if (!id) {
+      alert("Este plan no tiene ID.");
+      return;
+    }
+
+    const ok = confirm(`¿Eliminar ${getPlanName(plan)}?`);
+
+    if (!ok) return;
+
+    try {
+      setDeletingId(id);
+
+      let deleted = false;
+
+      const attempts = [
+        () => axios.delete(`${API}/plans/${id}`, getHeaders()),
+        () => axios.delete(`${API}/internet-plans/${id}`, getHeaders()),
+        () => axios.delete(`${API}/pppoe-plans/${id}`, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          deleted = true;
+          break;
+        } catch (err) {
+          console.warn("Intento eliminar plan falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!deleted) {
+        alert("No se encontró endpoint para eliminar plan.");
+        return;
+      }
+
+      await loadPlans();
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-plans-page">
+      <section className="hsm-plans-head">
+        <div>
+          <h2>Planes</h2>
+          <p>{stats.total} planes cargados</p>
+        </div>
+
+        <button onClick={openNew}>+ Plan</button>
+      </section>
+
+      <section className="hsm-plans-stats">
+        <div>
+          <strong>{stats.activos}</strong>
+          <span>Activos</span>
+        </div>
+
+        <div>
+          <strong>{stats.inactivos}</strong>
+          <span>Inactivos</span>
+        </div>
+
+        <div>
+          <strong>{stats.total}</strong>
+          <span>Total</span>
+        </div>
+      </section>
+
+      <section className="hsm-plans-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar plan, perfil o velocidad..."
+        />
+
+        <div className="hsm-plans-filter">
+          <button
+            className={typeFilter === "todos" ? "active" : ""}
+            onClick={() => setTypeFilter("todos")}
+          >
+            Todos
+          </button>
+
+          <button
+            className={typeFilter === "PPPoE" ? "active" : ""}
+            onClick={() => setTypeFilter("PPPoE")}
+          >
+            PPPoE
+          </button>
+
+          <button
+            className={typeFilter === "Hotspot" ? "active" : ""}
+            onClick={() => setTypeFilter("Hotspot")}
+          >
+            Hotspot
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-plans-refresh" onClick={loadPlans}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-plans-form-card">
+          <div className="hsm-plans-form-head">
+            <h3>{form.id ? "Editar plan" : "Nuevo plan"}</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={savePlan} className="hsm-plans-form">
+            <input
+              placeholder="Nombre del plan"
+              value={form.name}
+              onChange={(e) => updateForm("name", e.target.value)}
+            />
+
+            <input
+              placeholder="Perfil MikroTik"
+              value={form.profile}
+              onChange={(e) => updateForm("profile", e.target.value)}
+            />
+
+            <input
+              placeholder="Bajada ej: 100M"
+              value={form.download}
+              onChange={(e) => updateForm("download", e.target.value)}
+            />
+
+            <input
+              placeholder="Subida ej: 100M"
+              value={form.upload}
+              onChange={(e) => updateForm("upload", e.target.value)}
+            />
+
+            <input
+              type="number"
+              placeholder="Precio"
+              value={form.price}
+              onChange={(e) => updateForm("price", e.target.value)}
+            />
+
+            <select
+              value={form.type}
+              onChange={(e) => updateForm("type", e.target.value)}
+            >
+              <option value="PPPoE">PPPoE</option>
+              <option value="Hotspot">Hotspot</option>
+              <option value="IP Estática">IP Estática</option>
+            </select>
+
+            <input
+              placeholder="Burst / límite adicional"
+              value={form.burst}
+              onChange={(e) => updateForm("burst", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Reglas MikroTik / observaciones"
+              value={form.rules}
+              onChange={(e) => updateForm("rules", e.target.value)}
+            />
+
+            <label className="hsm-plans-check">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) => updateForm("active", e.target.checked)}
+              />
+              Plan activo
+            </label>
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : form.id ? "Guardar cambios" : "Crear plan"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando planes...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredPlans.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay planes para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-plans-list">
+        {filteredPlans.map((plan) => {
+          const active = isActive(plan);
+
+          return (
+            <article key={plan.id || getPlanName(plan)} className="hsm-plan-card">
+              <div className="hsm-plan-top">
+                <div className="hsm-plan-icon">📶</div>
+
+                <div className="hsm-plan-main">
+                  <h3>{getPlanName(plan)}</h3>
+                  <span className={active ? "ok" : "bad"}>
+                    {active ? "Activo" : "Inactivo"}
+                  </span>
+                </div>
+
+                <strong>{formatMoney(getPrice(plan))}</strong>
+              </div>
+
+              <div className="hsm-plan-info">
+                <div>
+                  <b>Perfil</b>
+                  <span>{getProfile(plan)}</span>
+                </div>
+
+                <div>
+                  <b>Tipo</b>
+                  <span>{getType(plan)}</span>
+                </div>
+
+                <div>
+                  <b>Bajada</b>
+                  <span>{getDownload(plan)}</span>
+                </div>
+
+                <div>
+                  <b>Subida</b>
+                  <span>{getUpload(plan)}</span>
+                </div>
+              </div>
+
+              <div className="hsm-plan-actions">
+                <button onClick={() => openEdit(plan)}>Editar</button>
+
+                <button
+                  className="danger"
+                  onClick={() => deletePlan(plan)}
+                  disabled={deletingId === plan.id}
+                >
+                  {deletingId === plan.id ? "Eliminando..." : "Eliminar"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobilePlans;

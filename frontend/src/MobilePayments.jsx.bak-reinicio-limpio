@@ -1,0 +1,836 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { isOnlineSyncMode, offlineNotAllowedMessage } from "./syncMode";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${
+        localStorage.getItem("token") || localStorage.getItem("access_token") || ""
+      }`,
+    },
+  };
+}
+
+const emptyForm = {
+  customer_id: "",
+  invoice_id: "",
+  amount: "",
+  method: "Efectivo",
+  reference: "",
+  date: new Date().toISOString().slice(0, 10),
+  notes: "",
+};
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getLocalPayments() {
+  if (isOnlineSyncMode()) return [];
+
+  try {
+    return JSON.parse(localStorage.getItem("hsm_local_payments") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setLocalPayments(items) {
+  if (isOnlineSyncMode()) return;
+  localStorage.setItem("hsm_local_payments", JSON.stringify(items));
+}
+
+function getLocalInvoices() {
+  if (isOnlineSyncMode()) return [];
+
+  try {
+    return JSON.parse(localStorage.getItem("hsm_local_invoices") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setLocalInvoices(items) {
+  if (isOnlineSyncMode()) return;
+  localStorage.setItem("hsm_local_invoices", JSON.stringify(items));
+}
+
+function getClientName(client) {
+  const first = client.name || client.nombre || client.first_name || "";
+  const last = client.last_name || client.apellido || "";
+  const full = `${first} ${last}`.trim();
+
+  return (
+    client.full_name ||
+    client.nombre_completo ||
+    client.customer_name ||
+    full ||
+    `Cliente #${client.id || "-"}`
+  );
+}
+
+function getPaymentClientName(payment, clients = []) {
+  const direct =
+    payment.customer_name ||
+    payment.client_name ||
+    payment.nombre_cliente ||
+    payment.full_name ||
+    "";
+
+  if (direct) return direct;
+
+  const customerId = payment.customer_id || payment.client_id;
+  const found = clients.find((client) => String(client.id) === String(customerId));
+
+  return found ? getClientName(found) : `Cliente #${customerId || "-"}`;
+}
+
+function getPaymentAmount(payment) {
+  return (
+    payment.amount ||
+    payment.monto ||
+    payment.total ||
+    payment.paid_amount ||
+    0
+  );
+}
+
+function getPaymentDate(payment) {
+  return (
+    payment.date ||
+    payment.fecha ||
+    payment.payment_date ||
+    payment.created_at ||
+    "-"
+  );
+}
+
+function getPaymentMethod(payment) {
+  return (
+    payment.method ||
+    payment.metodo ||
+    payment.payment_method ||
+    "Efectivo"
+  );
+}
+
+function getInvoiceAmount(invoice) {
+  return (
+    invoice.amount ||
+    invoice.monto ||
+    invoice.total ||
+    invoice.price ||
+    invoice.precio ||
+    0
+  );
+}
+
+function getInvoiceClientId(invoice) {
+  return invoice.customer_id || invoice.client_id || "";
+}
+
+function getInvoiceClientName(invoice, clients = []) {
+  const direct =
+    invoice.customer_name ||
+    invoice.client_name ||
+    invoice.nombre_cliente ||
+    invoice.full_name ||
+    "";
+
+  if (direct) return direct;
+
+  const customerId = getInvoiceClientId(invoice);
+  const found = clients.find((client) => String(client.id) === String(customerId));
+
+  return found ? getClientName(found) : `Cliente #${customerId || "-"}`;
+}
+
+function getInvoiceNumber(invoice) {
+  return (
+    invoice.number ||
+    invoice.numero ||
+    invoice.invoice_number ||
+    invoice.nro ||
+    invoice.id ||
+    "-"
+  );
+}
+
+function getInvoiceConcept(invoice) {
+  return (
+    invoice.concept ||
+    invoice.concepto ||
+    invoice.description ||
+    invoice.descripcion ||
+    "Servicio de internet"
+  );
+}
+
+function getInvoiceStatus(invoice) {
+  const raw = String(invoice.status || invoice.estado || "").toLowerCase();
+
+  if (invoice.paid === true || invoice.is_paid === true) return "Pagada";
+  if (raw.includes("paid") || raw.includes("pagada")) return "Pagada";
+  if (raw.includes("overdue") || raw.includes("vencida")) return "Vencida";
+  return "Pendiente";
+}
+
+function isInvoicePending(invoice) {
+  return getInvoiceStatus(invoice) !== "Pagada";
+}
+
+function makeLocalPayment(form, clientName, invoice) {
+  return {
+    id: `local-payment-${Date.now()}`,
+    local_only: true,
+    customer_id: form.customer_id,
+    customer_name: clientName,
+    invoice_id: form.invoice_id,
+    invoice_number: invoice ? getInvoiceNumber(invoice) : "",
+    amount: Number(form.amount || 0),
+    monto: Number(form.amount || 0),
+    method: form.method,
+    metodo: form.method,
+    reference: form.reference,
+    referencia: form.reference,
+    date: form.date,
+    fecha: form.date,
+    notes: form.notes,
+    observaciones: form.notes,
+    created_at: new Date().toISOString(),
+  };
+}
+
+function MobilePayments() {
+  const [payments, setPayments] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("hoy");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  const loadClients = async () => {
+    try {
+      let res;
+
+      const attempts = [
+        `${API}/customers`,
+        `${API}/customers/list-all`,
+        `${API}/clients`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento clientes para pagos falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.customers)
+        ? res.data.customers
+        : Array.isArray(res?.data?.clients)
+        ? res.data.clients
+        : [];
+
+      setClients(data);
+    } catch (err) {
+      console.warn("No se pudieron cargar clientes:", err);
+      setClients([]);
+    }
+  };
+
+  const loadInvoices = async () => {
+    try {
+      let res;
+
+      const attempts = [
+        `${API}/invoices`,
+        `${API}/facturas`,
+        `${API}/billing/invoices`,
+        `${API}/customer-invoices`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento facturas para pagos falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const backendData = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.invoices)
+        ? res.data.invoices
+        : Array.isArray(res?.data?.facturas)
+        ? res.data.facturas
+        : [];
+
+      const localData = getLocalInvoices();
+
+      const merged = [
+        ...backendData,
+        ...localData.filter((localItem) => {
+          return !backendData.some((backendItem) => String(backendItem.id) === String(localItem.id));
+        }),
+      ];
+
+      setInvoices(merged);
+    } catch (err) {
+      console.warn("No se pudieron cargar facturas:", err);
+      setInvoices(getLocalInvoices());
+    }
+  };
+
+  const loadPayments = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/payments`,
+        `${API}/pagos`,
+        `${API}/cash/payments`,
+        `${API}/billing/payments`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento pagos falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const backendData = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.payments)
+        ? res.data.payments
+        : Array.isArray(res?.data?.pagos)
+        ? res.data.pagos
+        : [];
+
+      const localData = getLocalPayments();
+
+      const merged = [
+        ...backendData,
+        ...localData.filter((localItem) => {
+          return !backendData.some((backendItem) => String(backendItem.id) === String(localItem.id));
+        }),
+      ];
+
+      setPayments(merged);
+    } catch (err) {
+      console.error(err);
+
+      const localData = getLocalPayments();
+      setPayments(localData);
+
+      if (!localData.length) {
+        setError("No se pudieron cargar los pagos.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClients();
+    loadInvoices();
+    loadPayments();
+  }, []);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const pendingInvoicesForClient = useMemo(() => {
+    if (!form.customer_id) return [];
+
+    return invoices.filter((invoice) => {
+      return (
+        String(getInvoiceClientId(invoice)) === String(form.customer_id) &&
+        isInvoicePending(invoice)
+      );
+    });
+  }, [invoices, form.customer_id]);
+
+  const stats = useMemo(() => {
+    let todayTotal = 0;
+    let monthTotal = 0;
+    let total = 0;
+
+    const currentMonth = today.slice(0, 7);
+
+    payments.forEach((payment) => {
+      const amount = Number(getPaymentAmount(payment));
+      const date = String(getPaymentDate(payment)).slice(0, 10);
+
+      total += amount;
+
+      if (date === today) todayTotal += amount;
+      if (date.slice(0, 7) === currentMonth) monthTotal += amount;
+    });
+
+    return {
+      count: payments.length,
+      todayTotal,
+      monthTotal,
+      total,
+    };
+  }, [payments, today]);
+
+  const filteredPayments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const currentMonth = today.slice(0, 7);
+
+    return payments.filter((payment) => {
+      const date = String(getPaymentDate(payment)).slice(0, 10);
+
+      if (filter === "hoy" && date !== today) return false;
+      if (filter === "mes" && date.slice(0, 7) !== currentMonth) return false;
+
+      const text = [
+        getPaymentClientName(payment, clients),
+        getPaymentAmount(payment),
+        getPaymentDate(payment),
+        getPaymentMethod(payment),
+        payment.reference,
+        payment.referencia,
+        payment.invoice_number,
+        payment.invoice_id,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return !q || text.includes(q);
+    });
+  }, [payments, clients, query, filter, today]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openNew = () => {
+    setForm(emptyForm);
+    setShowForm(true);
+  };
+
+  const markInvoicePaid = async (invoice, paymentPayload) => {
+    if (!invoice) return false;
+
+    const payload = {
+      paid: true,
+      is_paid: true,
+      status: "paid",
+      estado: "Pagada",
+      paid_at: new Date().toISOString(),
+      payment_id: paymentPayload?.id || null,
+    };
+
+    let saved = false;
+
+    if (!String(invoice.id || "").startsWith("local-")) {
+      const attempts = [
+        () => axios.post(`${API}/invoices/${invoice.id}/pay`, payload, getHeaders()),
+        () => axios.patch(`${API}/invoices/${invoice.id}`, payload, getHeaders()),
+        () => axios.post(`${API}/facturas/${invoice.id}/pay`, payload, getHeaders()),
+        () => axios.patch(`${API}/facturas/${invoice.id}`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento marcar factura pagada desde pago falló:", err?.response?.status || err?.message);
+        }
+      }
+    }
+
+    if (!saved) {
+      const localItems = getLocalInvoices();
+
+      if (localItems.some((item) => String(item.id) === String(invoice.id))) {
+        setLocalInvoices(
+          localItems.map((item) =>
+            String(item.id) === String(invoice.id)
+              ? { ...item, ...payload }
+              : item
+          )
+        );
+      }
+
+      setInvoices((prev) =>
+        prev.map((item) =>
+          String(item.id) === String(invoice.id)
+            ? { ...item, ...payload }
+            : item
+        )
+      );
+    }
+
+    return true;
+  };
+
+  const savePayment = async (e) => {
+    e.preventDefault();
+
+    if (!form.customer_id) {
+      alert("Seleccioná un cliente.");
+      return;
+    }
+
+    if (!form.amount || Number(form.amount) <= 0) {
+      alert("Ingresá un monto válido.");
+      return;
+    }
+
+    if (!form.date) {
+      alert("Ingresá fecha del pago.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const client = clients.find((item) => String(item.id) === String(form.customer_id));
+      const clientName = client ? getClientName(client) : `Cliente #${form.customer_id}`;
+      const invoice = invoices.find((item) => String(item.id) === String(form.invoice_id));
+
+      const payload = {
+        customer_id: Number(form.customer_id),
+        client_id: Number(form.customer_id),
+        customer_name: clientName,
+        invoice_id: form.invoice_id || null,
+        amount: Number(form.amount),
+        monto: Number(form.amount),
+        total: Number(form.amount),
+        method: form.method,
+        metodo: form.method,
+        payment_method: form.method,
+        reference: form.reference,
+        referencia: form.reference,
+        date: form.date,
+        fecha: form.date,
+        notes: form.notes,
+        observaciones: form.notes,
+      };
+
+      let saved = false;
+      let savedData = null;
+
+      const attempts = [
+        () => axios.post(`${API}/payments`, payload, getHeaders()),
+        () => axios.post(`${API}/pagos`, payload, getHeaders()),
+        () => axios.post(`${API}/cash/payments`, payload, getHeaders()),
+        () => axios.post(`${API}/billing/payments`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          const res = await attempt();
+          saved = true;
+          savedData = res.data;
+          break;
+        } catch (err) {
+          console.warn("Intento guardar pago falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        if (isOnlineSyncMode()) {
+          alert(offlineNotAllowedMessage("Pagos / Caja"));
+          return;
+        }
+
+        const localPayment = makeLocalPayment(form, clientName, invoice);
+        const localItems = getLocalPayments();
+        setLocalPayments([localPayment, ...localItems]);
+        savedData = localPayment;
+      }
+
+      if (invoice) {
+        await markInvoicePaid(invoice, savedData);
+      }
+
+      setShowForm(false);
+      setForm(emptyForm);
+
+      await loadInvoices();
+      await loadPayments();
+
+      alert(saved ? "Pago registrado correctamente." : offlineNotAllowedMessage("Pagos / Caja"));
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar el pago.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const showReceipt = (payment) => {
+    const receipt = `
+RECIBO HIGHSPEED
+
+Cliente: ${getPaymentClientName(payment, clients)}
+Monto: ${formatMoney(getPaymentAmount(payment))}
+Método: ${getPaymentMethod(payment)}
+Fecha: ${getPaymentDate(payment)}
+Factura: ${payment.invoice_number || payment.invoice_id || "-"}
+Referencia: ${payment.reference || payment.referencia || "-"}
+`;
+
+    alert(receipt);
+  };
+
+  return (
+    <div className="hsm-payments-page">
+      <section className="hsm-payments-head">
+        <div>
+          <h2>Pagos / Caja</h2>
+          <p>{payments.length} pagos registrados</p>
+        </div>
+
+        <button onClick={openNew}>+ Pago</button>
+      </section>
+
+      <section className="hsm-payments-total">
+        <span>Caja de hoy</span>
+        <strong>{formatMoney(stats.todayTotal)}</strong>
+      </section>
+
+      <section className="hsm-payments-stats">
+        <div>
+          <strong>{formatMoney(stats.monthTotal)}</strong>
+          <span>Mes</span>
+        </div>
+
+        <div>
+          <strong>{formatMoney(stats.total)}</strong>
+          <span>Total</span>
+        </div>
+
+        <div>
+          <strong>{stats.count}</strong>
+          <span>Pagos</span>
+        </div>
+      </section>
+
+      <section className="hsm-payments-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar pago, cliente, método..."
+        />
+
+        <div className="hsm-payments-filter">
+          <button
+            className={filter === "hoy" ? "active" : ""}
+            onClick={() => setFilter("hoy")}
+          >
+            Hoy
+          </button>
+
+          <button
+            className={filter === "mes" ? "active" : ""}
+            onClick={() => setFilter("mes")}
+          >
+            Mes
+          </button>
+
+          <button
+            className={filter === "todos" ? "active" : ""}
+            onClick={() => setFilter("todos")}
+          >
+            Todos
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-payments-refresh" onClick={() => { loadClients(); loadInvoices(); loadPayments(); }}>
+        Actualizar caja
+      </button>
+
+      {showForm && (
+        <section className="hsm-payments-form-card">
+          <div className="hsm-payments-form-head">
+            <h3>Registrar pago</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={savePayment} className="hsm-payments-form">
+            <select
+              value={form.customer_id}
+              onChange={(e) => {
+                updateForm("customer_id", e.target.value);
+                updateForm("invoice_id", "");
+              }}
+            >
+              <option value="">Seleccionar cliente</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {getClientName(client)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={form.invoice_id}
+              onChange={(e) => {
+                const invoiceId = e.target.value;
+                updateForm("invoice_id", invoiceId);
+
+                const invoice = invoices.find((item) => String(item.id) === String(invoiceId));
+
+                if (invoice) {
+                  updateForm("amount", String(getInvoiceAmount(invoice)));
+                }
+              }}
+            >
+              <option value="">Sin factura / pago libre</option>
+              {pendingInvoicesForClient.map((invoice) => (
+                <option key={invoice.id} value={invoice.id}>
+                  #{getInvoiceNumber(invoice)} · {getInvoiceConcept(invoice)} · {formatMoney(getInvoiceAmount(invoice))}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="number"
+              placeholder="Monto"
+              value={form.amount}
+              onChange={(e) => updateForm("amount", e.target.value)}
+            />
+
+            <select
+              value={form.method}
+              onChange={(e) => updateForm("method", e.target.value)}
+            >
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Mercado Pago">Mercado Pago</option>
+              <option value="Tarjeta">Tarjeta</option>
+              <option value="Otro">Otro</option>
+            </select>
+
+            <input
+              placeholder="Referencia / comprobante"
+              value={form.reference}
+              onChange={(e) => updateForm("reference", e.target.value)}
+            />
+
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => updateForm("date", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Notas"
+              value={form.notes}
+              onChange={(e) => updateForm("notes", e.target.value)}
+            />
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Registrar pago"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando pagos...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredPayments.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay pagos para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-payments-list">
+        {filteredPayments.map((payment) => (
+          <article key={payment.id || `${getPaymentClientName(payment, clients)}-${getPaymentDate(payment)}`} className="hsm-payment-card">
+            <div className="hsm-payment-top">
+              <div className="hsm-payment-icon">💵</div>
+
+              <div className="hsm-payment-main">
+                <h3>{getPaymentClientName(payment, clients)}</h3>
+                <span>{getPaymentMethod(payment)}</span>
+              </div>
+
+              <strong>{formatMoney(getPaymentAmount(payment))}</strong>
+            </div>
+
+            <div className="hsm-payment-info">
+              <div>
+                <b>Fecha</b>
+                <span>{getPaymentDate(payment)}</span>
+              </div>
+
+              <div>
+                <b>Factura</b>
+                <span>{payment.invoice_number || payment.invoice_id || "-"}</span>
+              </div>
+
+              <div>
+                <b>Referencia</b>
+                <span>{payment.reference || payment.referencia || "-"}</span>
+              </div>
+
+              <div>
+                <b>ID</b>
+                <span>{payment.id || "-"}</span>
+              </div>
+            </div>
+
+            <div className="hsm-payment-actions">
+              <button onClick={() => showReceipt(payment)}>
+                Recibo
+              </button>
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+export default MobilePayments;

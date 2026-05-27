@@ -1,0 +1,486 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+const emptyForm = {
+  customer_id: "",
+  amount: "",
+  payment_method: "Efectivo",
+  payment_date: new Date().toISOString().slice(0, 10),
+  reference: "",
+  note: "",
+};
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getPaymentCustomer(payment, customerMap) {
+  return (
+    payment.customer_name ||
+    payment.client_name ||
+    payment.customer_full_name ||
+    customerMap.get(String(payment.customer_id)) ||
+    `Cliente #${payment.customer_id || "-"}`
+  );
+}
+
+function getPaymentAmount(payment) {
+  return payment.amount || payment.monto || payment.total || payment.value || 0;
+}
+
+function getPaymentMethod(payment) {
+  return (
+    payment.payment_method ||
+    payment.method ||
+    payment.metodo ||
+    payment.payment_type ||
+    "Sin método"
+  );
+}
+
+function getPaymentDate(payment) {
+  return (
+    payment.payment_date ||
+    payment.date ||
+    payment.fecha ||
+    payment.created_at ||
+    "-"
+  );
+}
+
+function MobilePayments() {
+  const [payments, setPayments] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [query, setQuery] = useState("");
+  const [methodFilter, setMethodFilter] = useState("todos");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+
+  const loadPayments = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const customersReq = axios
+        .get(`${API}/customers/list-all`, getHeaders())
+        .catch(() => axios.get(`${API}/customers`, getHeaders()));
+
+      let paymentsReq;
+
+      try {
+        paymentsReq = axios.get(`${API}/payments`, getHeaders());
+      } catch {
+        paymentsReq = axios.get(`${API}/cashbox/payments`, getHeaders());
+      }
+
+      const [paymentsRes, customersRes] = await Promise.all([
+        paymentsReq.catch(async () => {
+          try {
+            return await axios.get(`${API}/cashbox`, getHeaders());
+          } catch {
+            return { data: [] };
+          }
+        }),
+        customersReq,
+      ]);
+
+      const paymentData = Array.isArray(paymentsRes.data)
+        ? paymentsRes.data
+        : Array.isArray(paymentsRes.data?.items)
+        ? paymentsRes.data.items
+        : Array.isArray(paymentsRes.data?.payments)
+        ? paymentsRes.data.payments
+        : Array.isArray(paymentsRes.data?.movements)
+        ? paymentsRes.data.movements
+        : [];
+
+      const customerData = Array.isArray(customersRes.data)
+        ? customersRes.data
+        : Array.isArray(customersRes.data?.items)
+        ? customersRes.data.items
+        : Array.isArray(customersRes.data?.customers)
+        ? customersRes.data.customers
+        : [];
+
+      setPayments(paymentData);
+      setCustomers(customerData);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los pagos.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPayments();
+  }, []);
+
+  const customerMap = useMemo(() => {
+    const map = new Map();
+
+    customers.forEach((customer) => {
+      const name =
+        `${customer.name || customer.nombre || ""} ${
+          customer.last_name || customer.apellido || ""
+        }`.trim() ||
+        customer.full_name ||
+        `Cliente #${customer.id}`;
+
+      map.set(String(customer.id), name);
+    });
+
+    return map;
+  }, [customers]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const stats = useMemo(() => {
+    let total = 0;
+    let todayTotal = 0;
+    let efectivo = 0;
+    let transferencia = 0;
+
+    payments.forEach((payment) => {
+      const amount = Number(getPaymentAmount(payment));
+      const method = getPaymentMethod(payment).toLowerCase();
+      const date = String(getPaymentDate(payment));
+
+      total += amount;
+
+      if (date.includes(today)) {
+        todayTotal += amount;
+      }
+
+      if (method.includes("efectivo")) efectivo += amount;
+      if (method.includes("transfer")) transferencia += amount;
+    });
+
+    return {
+      total,
+      todayTotal,
+      efectivo,
+      transferencia,
+      count: payments.length,
+    };
+  }, [payments, today]);
+
+  const filteredPayments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return payments.filter((payment) => {
+      const customer = getPaymentCustomer(payment, customerMap).toLowerCase();
+      const method = getPaymentMethod(payment).toLowerCase();
+
+      const text = [
+        customer,
+        method,
+        payment.reference,
+        payment.note,
+        payment.description,
+        payment.id,
+        getPaymentDate(payment),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+      const matchMethod = methodFilter === "todos" || method.includes(methodFilter);
+
+      return matchText && matchMethod;
+    });
+  }, [payments, query, methodFilter, customerMap]);
+
+  const updateForm = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const savePayment = async (e) => {
+    e.preventDefault();
+
+    if (!form.amount || Number(form.amount) <= 0) {
+      alert("Ingresá un monto válido.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        customer_id: form.customer_id ? Number(form.customer_id) : null,
+        amount: Number(form.amount),
+        payment_method: form.payment_method,
+        method: form.payment_method,
+        payment_date: form.payment_date,
+        date: form.payment_date,
+        reference: form.reference,
+        note: form.note,
+        description: form.note,
+      };
+
+      let saved = false;
+
+      const attempts = [
+        () => axios.post(`${API}/payments`, payload, getHeaders()),
+        () => axios.post(`${API}/cashbox/payments`, payload, getHeaders()),
+        () => axios.post(`${API}/cashbox`, payload, getHeaders()),
+        () => axios.post(`${API}/cashbox/movements`, payload, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          saved = true;
+          break;
+        } catch (err) {
+          console.warn("Intento pago falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!saved) {
+        throw new Error("No se encontró endpoint válido para pagos.");
+      }
+
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadPayments();
+
+      alert("Pago registrado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar el pago. Revisá el endpoint del backend.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="hsm-payment-page">
+      <section className="hsm-payment-head">
+        <div>
+          <h2>Pagos / Caja</h2>
+          <p>{stats.count} movimientos registrados</p>
+        </div>
+
+        <button onClick={() => setShowForm(true)}>+ Pago</button>
+      </section>
+
+      <section className="hsm-payment-total">
+        <span>Cobrado hoy</span>
+        <strong>{formatMoney(stats.todayTotal)}</strong>
+      </section>
+
+      <section className="hsm-payment-stats">
+        <div>
+          <strong>{formatMoney(stats.total)}</strong>
+          <span>Total</span>
+        </div>
+
+        <div>
+          <strong>{formatMoney(stats.efectivo)}</strong>
+          <span>Efectivo</span>
+        </div>
+
+        <div>
+          <strong>{formatMoney(stats.transferencia)}</strong>
+          <span>Transfer.</span>
+        </div>
+      </section>
+
+      <section className="hsm-payment-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, método o referencia..."
+        />
+
+        <div className="hsm-payment-filter">
+          <button
+            className={methodFilter === "todos" ? "active" : ""}
+            onClick={() => setMethodFilter("todos")}
+          >
+            Todos
+          </button>
+
+          <button
+            className={methodFilter === "efectivo" ? "active" : ""}
+            onClick={() => setMethodFilter("efectivo")}
+          >
+            Efectivo
+          </button>
+
+          <button
+            className={methodFilter === "transfer" ? "active" : ""}
+            onClick={() => setMethodFilter("transfer")}
+          >
+            Transferencia
+          </button>
+
+          <button
+            className={methodFilter === "mercado" ? "active" : ""}
+            onClick={() => setMethodFilter("mercado")}
+          >
+            Mercado Pago
+          </button>
+        </div>
+      </section>
+
+      <button className="hsm-payment-refresh" onClick={loadPayments}>
+        Actualizar lista
+      </button>
+
+      {showForm && (
+        <section className="hsm-payment-form-card">
+          <div className="hsm-payment-form-head">
+            <h3>Registrar pago</h3>
+            <button onClick={() => setShowForm(false)}>×</button>
+          </div>
+
+          <form onSubmit={savePayment} className="hsm-payment-form">
+            <select
+              value={form.customer_id}
+              onChange={(e) => updateForm("customer_id", e.target.value)}
+            >
+              <option value="">Cliente opcional</option>
+              {customers.map((customer) => {
+                const name =
+                  `${customer.name || customer.nombre || ""} ${
+                    customer.last_name || customer.apellido || ""
+                  }`.trim() ||
+                  customer.full_name ||
+                  `Cliente #${customer.id}`;
+
+                return (
+                  <option key={customer.id} value={customer.id}>
+                    {name}
+                  </option>
+                );
+              })}
+            </select>
+
+            <input
+              type="number"
+              placeholder="Monto"
+              value={form.amount}
+              onChange={(e) => updateForm("amount", e.target.value)}
+            />
+
+            <select
+              value={form.payment_method}
+              onChange={(e) => updateForm("payment_method", e.target.value)}
+            >
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Mercado Pago">Mercado Pago</option>
+              <option value="Tarjeta">Tarjeta</option>
+              <option value="Otro">Otro</option>
+            </select>
+
+            <input
+              type="date"
+              value={form.payment_date}
+              onChange={(e) => updateForm("payment_date", e.target.value)}
+            />
+
+            <input
+              placeholder="Referencia / comprobante"
+              value={form.reference}
+              onChange={(e) => updateForm("reference", e.target.value)}
+            />
+
+            <textarea
+              placeholder="Nota"
+              value={form.note}
+              onChange={(e) => updateForm("note", e.target.value)}
+            />
+
+            <button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Guardar pago"}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando pagos...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredPayments.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay pagos para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-payment-list">
+        {filteredPayments.map((payment) => {
+          const amount = getPaymentAmount(payment);
+          const method = getPaymentMethod(payment);
+          const customer = getPaymentCustomer(payment, customerMap);
+          const date = getPaymentDate(payment);
+
+          return (
+            <article key={payment.id || `${customer}-${date}-${amount}`} className="hsm-payment-card">
+              <div className="hsm-payment-top">
+                <div className="hsm-payment-icon">💵</div>
+
+                <div className="hsm-payment-main">
+                  <h3>{customer}</h3>
+                  <span>{method}</span>
+                </div>
+
+                <strong>{formatMoney(amount)}</strong>
+              </div>
+
+              <div className="hsm-payment-info">
+                <div>
+                  <b>Fecha</b>
+                  <span>{date}</span>
+                </div>
+
+                <div>
+                  <b>Referencia</b>
+                  <span>{payment.reference || payment.comprobante || "-"}</span>
+                </div>
+
+                <div className="full">
+                  <b>Nota</b>
+                  <span>{payment.note || payment.description || "-"}</span>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobilePayments;

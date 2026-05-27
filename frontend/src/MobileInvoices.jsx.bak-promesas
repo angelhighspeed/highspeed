@@ -1,0 +1,339 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function getStatus(invoice) {
+  const raw = String(
+    invoice.status ||
+      invoice.estado ||
+      invoice.payment_status ||
+      ""
+  ).toLowerCase();
+
+  if (raw.includes("paid") || raw.includes("pagada")) return "Pagada";
+  if (raw.includes("overdue") || raw.includes("vencida")) return "Vencida";
+  if (raw.includes("pending") || raw.includes("pendiente")) return "Pendiente";
+
+  return raw ? raw : "Pendiente";
+}
+
+function statusClass(status) {
+  const s = status.toLowerCase();
+
+  if (s.includes("pagada")) return "ok";
+  if (s.includes("vencida")) return "bad";
+  if (s.includes("pendiente")) return "warn";
+
+  return "";
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function getCustomerName(invoice) {
+  return (
+    invoice.customer_name ||
+    invoice.client_name ||
+    invoice.customer_full_name ||
+    invoice.full_name ||
+    invoice.customer?.name ||
+    `Cliente #${invoice.customer_id || "-"}`
+  );
+}
+
+function MobileInvoices() {
+  const [invoices, setInvoices] = useState([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pendiente");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [payingId, setPayingId] = useState(null);
+
+  const loadInvoices = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      try {
+        res = await axios.get(`${API}/invoice-promises/invoices`, getHeaders());
+      } catch {
+        res = await axios.get(`${API}/invoices`, getHeaders());
+      }
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.items)
+        ? res.data.items
+        : Array.isArray(res.data?.invoices)
+        ? res.data.invoices
+        : [];
+
+      setInvoices(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar las facturas.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInvoices();
+  }, []);
+
+  const stats = useMemo(() => {
+    let pendientes = 0;
+    let pagadas = 0;
+    let vencidas = 0;
+    let totalPendiente = 0;
+
+    invoices.forEach((invoice) => {
+      const status = getStatus(invoice);
+      const amount = Number(invoice.amount || invoice.total || invoice.price || 0);
+
+      if (status === "Pagada") {
+        pagadas += 1;
+      } else if (status === "Vencida") {
+        vencidas += 1;
+        totalPendiente += amount;
+      } else {
+        pendientes += 1;
+        totalPendiente += amount;
+      }
+    });
+
+    return {
+      total: invoices.length,
+      pendientes,
+      pagadas,
+      vencidas,
+      totalPendiente,
+    };
+  }, [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return invoices.filter((invoice) => {
+      const status = getStatus(invoice).toLowerCase();
+      const customer = getCustomerName(invoice).toLowerCase();
+
+      const text = [
+        customer,
+        invoice.id,
+        invoice.customer_id,
+        invoice.due_date,
+        invoice.period,
+        invoice.description,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchText = !q || text.includes(q);
+
+      let matchStatus = true;
+
+      if (statusFilter !== "todas") {
+        matchStatus = status.includes(statusFilter);
+      }
+
+      return matchText && matchStatus;
+    });
+  }, [invoices, query, statusFilter]);
+
+  const markAsPaid = async (invoice) => {
+    const ok = confirm("¿Registrar esta factura como pagada?");
+
+    if (!ok) return;
+
+    try {
+      setPayingId(invoice.id);
+
+      const payload = {
+        status: "paid",
+        payment_status: "paid",
+      };
+
+      try {
+        await axios.put(`${API}/invoices/${invoice.id}`, payload, getHeaders());
+      } catch {
+        await axios.patch(`${API}/invoices/${invoice.id}`, payload, getHeaders());
+      }
+
+      await loadInvoices();
+      alert("Pago registrado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar el pago.");
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  return (
+    <div className="hsm-invoice-page">
+      <section className="hsm-invoice-head">
+        <div>
+          <h2>Facturas</h2>
+          <p>{stats.pendientes} pendientes · {stats.vencidas} vencidas</p>
+        </div>
+
+        <button onClick={loadInvoices}>Actualizar</button>
+      </section>
+
+      <section className="hsm-invoice-total">
+        <span>Total pendiente</span>
+        <strong>{formatMoney(stats.totalPendiente)}</strong>
+      </section>
+
+      <section className="hsm-invoice-stats">
+        <div>
+          <strong>{stats.pendientes}</strong>
+          <span>Pendientes</span>
+        </div>
+
+        <div>
+          <strong>{stats.vencidas}</strong>
+          <span>Vencidas</span>
+        </div>
+
+        <div>
+          <strong>{stats.pagadas}</strong>
+          <span>Pagadas</span>
+        </div>
+      </section>
+
+      <section className="hsm-invoice-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, factura o período..."
+        />
+
+        <div className="hsm-invoice-filter">
+          <button
+            className={statusFilter === "pendiente" ? "active" : ""}
+            onClick={() => setStatusFilter("pendiente")}
+          >
+            Pendientes
+          </button>
+
+          <button
+            className={statusFilter === "vencida" ? "active" : ""}
+            onClick={() => setStatusFilter("vencida")}
+          >
+            Vencidas
+          </button>
+
+          <button
+            className={statusFilter === "pagada" ? "active" : ""}
+            onClick={() => setStatusFilter("pagada")}
+          >
+            Pagadas
+          </button>
+
+          <button
+            className={statusFilter === "todas" ? "active" : ""}
+            onClick={() => setStatusFilter("todas")}
+          >
+            Todas
+          </button>
+        </div>
+      </section>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando facturas...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filteredInvoices.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay facturas para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-invoice-list">
+        {filteredInvoices.map((invoice) => {
+          const status = getStatus(invoice);
+          const amount = invoice.amount || invoice.total || invoice.price || 0;
+
+          return (
+            <article key={invoice.id} className="hsm-invoice-card">
+              <div className="hsm-invoice-top">
+                <div className="hsm-invoice-icon">🧾</div>
+
+                <div className="hsm-invoice-main">
+                  <h3>{getCustomerName(invoice)}</h3>
+                  <span className={`hsm-invoice-status ${statusClass(status)}`}>
+                    {status}
+                  </span>
+                </div>
+
+                <strong>{formatMoney(amount)}</strong>
+              </div>
+
+              <div className="hsm-invoice-info">
+                <div>
+                  <b>Factura</b>
+                  <span>#{invoice.id}</span>
+                </div>
+
+                <div>
+                  <b>Vencimiento</b>
+                  <span>{invoice.due_date || invoice.vencimiento || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Período</b>
+                  <span>{invoice.period || invoice.periodo || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Cliente ID</b>
+                  <span>{invoice.customer_id || "-"}</span>
+                </div>
+              </div>
+
+              {status !== "Pagada" && (
+                <button
+                  className="hsm-invoice-pay-btn"
+                  onClick={() => markAsPaid(invoice)}
+                  disabled={payingId === invoice.id}
+                >
+                  {payingId === invoice.id ? "Registrando..." : "Registrar pago"}
+                </button>
+              )}
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileInvoices;

@@ -1,0 +1,343 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function formatSpeed(value) {
+  const n = Number(value || 0);
+
+  if (n >= 1000000000) return `${(n / 1000000000).toFixed(1)} Gbps`;
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)} Mbps`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)} Kbps`;
+
+  return `${n.toFixed(0)} bps`;
+}
+
+function formatBytes(value) {
+  const n = Number(value || 0);
+
+  if (n >= 1024 ** 4) return `${(n / 1024 ** 4).toFixed(1)} TB`;
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+
+  return `${n.toFixed(0)} B`;
+}
+
+function getClientName(item) {
+  return (
+    item.customer_name ||
+    item.client_name ||
+    item.full_name ||
+    item.name ||
+    item.username ||
+    item.pppoe_user ||
+    `Cliente #${item.customer_id || item.id || "-"}`
+  );
+}
+
+function getDownload(item) {
+  return (
+    item.download ||
+    item.rx_rate ||
+    item.download_rate ||
+    item.down_rate ||
+    item.rx ||
+    0
+  );
+}
+
+function getUpload(item) {
+  return (
+    item.upload ||
+    item.tx_rate ||
+    item.upload_rate ||
+    item.up_rate ||
+    item.tx ||
+    0
+  );
+}
+
+function getTotalDownload(item) {
+  return (
+    item.total_download ||
+    item.rx_bytes ||
+    item.download_bytes ||
+    item.total_rx ||
+    0
+  );
+}
+
+function getTotalUpload(item) {
+  return (
+    item.total_upload ||
+    item.tx_bytes ||
+    item.upload_bytes ||
+    item.total_tx ||
+    0
+  );
+}
+
+function MobileTraffic() {
+  const [traffic, setTraffic] = useState([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadTraffic = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/client-traffic`,
+        `${API}/traffic`,
+        `${API}/dashboard/traffic`,
+        `${API}/mikrotik/traffic`,
+        `${API}/online-clients`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento tráfico falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.traffic)
+        ? res.data.traffic
+        : Array.isArray(res?.data?.clients)
+        ? res.data.clients
+        : [];
+
+      setTraffic(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo cargar el tráfico.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTraffic();
+  }, []);
+
+  const stats = useMemo(() => {
+    let down = 0;
+    let up = 0;
+    let totalDown = 0;
+    let totalUp = 0;
+
+    traffic.forEach((item) => {
+      down += Number(getDownload(item));
+      up += Number(getUpload(item));
+      totalDown += Number(getTotalDownload(item));
+      totalUp += Number(getTotalUpload(item));
+    });
+
+    return {
+      clients: traffic.length,
+      down,
+      up,
+      totalDown,
+      totalUp,
+    };
+  }, [traffic]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    if (!q) return traffic;
+
+    return traffic.filter((item) => {
+      const text = [
+        getClientName(item),
+        item.ip,
+        item.address,
+        item.mac,
+        item.interface,
+        item.router_name,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(q);
+    });
+  }, [traffic, query]);
+
+  return (
+    <div className="hsm-traffic-page">
+      <section className="hsm-traffic-head">
+        <div>
+          <h2>Tráfico</h2>
+          <p>{stats.clients} clientes monitoreados</p>
+        </div>
+
+        <button onClick={loadTraffic}>Actualizar</button>
+      </section>
+
+      <section className="hsm-traffic-total">
+        <div>
+          <span>Bajada actual</span>
+          <strong>{formatSpeed(stats.down)}</strong>
+        </div>
+
+        <div>
+          <span>Subida actual</span>
+          <strong>{formatSpeed(stats.up)}</strong>
+        </div>
+      </section>
+
+      <section className="hsm-traffic-stats">
+        <div>
+          <strong>{formatBytes(stats.totalDown)}</strong>
+          <span>Total bajado</span>
+        </div>
+
+        <div>
+          <strong>{formatBytes(stats.totalUp)}</strong>
+          <span>Total subido</span>
+        </div>
+      </section>
+
+      <section className="hsm-traffic-chart-card">
+        <div className="hsm-traffic-chart-head">
+          <h3>Uso de red</h3>
+          <span>Tiempo real</span>
+        </div>
+
+        <svg viewBox="0 0 360 180" className="hsm-traffic-chart">
+          <line x1="25" y1="20" x2="25" y2="150" />
+          <line x1="25" y1="150" x2="340" y2="150" />
+
+          {[45, 80, 115].map((y) => (
+            <line key={y} x1="25" y1={y} x2="340" y2={y} className="grid-line" />
+          ))}
+
+          <path
+            d="M25 120 C55 90, 70 112, 95 70 C125 30, 145 96, 175 78 C205 58, 224 118, 255 88 C285 55, 305 72, 340 42"
+            fill="none"
+            stroke="#2563eb"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+
+          <path
+            d="M25 138 C60 132, 75 102, 105 118 C132 135, 148 82, 180 102 C210 122, 226 98, 260 115 C292 132, 312 95, 340 105"
+            fill="none"
+            stroke="#22c55e"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+        </svg>
+
+        <div className="hsm-traffic-legend">
+          <span><i style={{ background: "#2563eb" }} /> Bajada</span>
+          <span><i style={{ background: "#22c55e" }} /> Subida</span>
+        </div>
+      </section>
+
+      <section className="hsm-traffic-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar cliente, IP, router o interfaz..."
+        />
+      </section>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando tráfico...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay datos de tráfico para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-traffic-list">
+        {filtered.map((item, index) => {
+          const name = getClientName(item);
+          const down = getDownload(item);
+          const up = getUpload(item);
+          const totalDown = getTotalDownload(item);
+          const totalUp = getTotalUpload(item);
+
+          return (
+            <article key={item.id || item.username || index} className="hsm-traffic-card">
+              <div className="hsm-traffic-top">
+                <div className="hsm-traffic-icon">📊</div>
+
+                <div className="hsm-traffic-main">
+                  <h3>{name}</h3>
+                  <span>{item.ip || item.address || item.pppoe_user || "Sin IP"}</span>
+                </div>
+              </div>
+
+              <div className="hsm-traffic-speeds">
+                <div>
+                  <b>Bajada</b>
+                  <strong>{formatSpeed(down)}</strong>
+                </div>
+
+                <div>
+                  <b>Subida</b>
+                  <strong>{formatSpeed(up)}</strong>
+                </div>
+              </div>
+
+              <div className="hsm-traffic-info">
+                <div>
+                  <b>Total bajado</b>
+                  <span>{formatBytes(totalDown)}</span>
+                </div>
+
+                <div>
+                  <b>Total subido</b>
+                  <span>{formatBytes(totalUp)}</span>
+                </div>
+
+                <div>
+                  <b>Router</b>
+                  <span>{item.router_name || item.router || "-"}</span>
+                </div>
+
+                <div>
+                  <b>Interfaz</b>
+                  <span>{item.interface || item.iface || "-"}</span>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+export default MobileTraffic;

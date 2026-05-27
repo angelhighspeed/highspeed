@@ -1,0 +1,143 @@
+import { useState } from "react";
+import logo from "./assets/logo.png";
+
+import RouterManager from "./RouterManager";
+import CustomerManager from "./CustomerManager";
+import PlanManager from "./PlanManager";
+import OnlineClients from "./OnlineClients";
+import ClientTraffic from "./ClientTraffic";
+import AutoCutManager from "./AutoCutManager";
+import BackupImportManager from "./BackupImportManager";
+
+const menuItems = [
+  { id: "home", label: "Inicio", icon: "🏠" },
+  { id: "customers", label: "Clientes", icon: "👥" },
+  { id: "plans", label: "Planes", icon: "📶" },
+  { id: "routers", label: "Routers", icon: "🖧" },
+  { id: "installations", label: "Instalaciones", icon: "🛠️" },
+  { id: "tickets", label: "Tickets", icon: "🎫" },
+  { id: "invoices", label: "Facturas", icon: "🧾" },
+  { id: "payments", label: "Pagos", icon: "💵" },
+  { id: "online", label: "Online", icon: "🟢" },
+  { id: "traffic", label: "Tráfico", icon: "📊" },
+  { id: "autocut", label: "Corte automático", icon: "⚡" },
+  { id: "backup", label: "Backup", icon: "💾" },
+  { id: "company", label: "Empresa", icon: "🏢" },
+  { id: "users", label: "Usuarios", icon: "👤" },
+  { id: "notifications", label: "Notificaciones", icon: "🔔" },
+  { id: "clientStatus", label: "Estado clientes", icon: "📋" },
+];
+
+function MobileDashboard({ onLogout }) {
+  const [section, setSection] = useState("home");
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const openSection = (id) => {
+    setSection(id);
+    setMenuOpen(false);
+  };
+
+  const logout = () => {
+    localStorage.clear();
+    onLogout();
+  };
+
+  const title = menuItems.find((item) => item.id === section)?.label || "HighSpeed";
+
+  const pending = (name) => (
+    <div className="mobile-card">
+      <h1>{name}</h1>
+      <p>Este módulo ya está en el menú móvil. Falta conectar su vista completa.</p>
+    </div>
+  );
+
+  const renderSection = () => {
+    if (section === "customers") return <CustomerManager />;
+    if (section === "plans") return <PlanManager />;
+    if (section === "routers") return <RouterManager />;
+    if (section === "online") return <OnlineClients />;
+    if (section === "traffic") return <ClientTraffic />;
+    if (section === "autocut") return <AutoCutManager />;
+    if (section === "backup") return <BackupImportManager />;
+
+    if (section === "installations") return pending("Instalaciones");
+    if (section === "tickets") return pending("Tickets");
+    if (section === "invoices") return pending("Facturas");
+    if (section === "payments") return pending("Pagos");
+    if (section === "company") return pending("Empresa");
+    if (section === "users") return pending("Usuarios");
+    if (section === "notifications") return pending("Notificaciones");
+    if (section === "clientStatus") return pending("Estado clientes");
+
+    return (
+      <div className="mobile-home">
+        <div className="mobile-card">
+          <h1>Panel móvil HighSpeed</h1>
+          <p>Seleccioná un módulo desde el botón de menú.</p>
+        </div>
+
+        {menuItems
+          .filter((item) => item.id !== "home")
+          .map((item) => (
+            <button
+              key={item.id}
+              onClick={() => openSection(item.id)}
+              className="mobile-home-card"
+            >
+              <span>{item.icon}</span>
+              <b>{item.label}</b>
+            </button>
+          ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="mobile-clean-v32">
+      <div className="mobile-legacy-shield" />
+
+      <header className="mobile-clean-topbar">
+        <button className="mobile-clean-menu-btn" onClick={() => setMenuOpen(true)}>
+          ☰
+        </button>
+        <div className="mobile-clean-title">HighSpeed</div>
+      </header>
+
+      {menuOpen && (
+        <div className="mobile-clean-backdrop" onClick={() => setMenuOpen(false)} />
+      )}
+
+      <aside className={`mobile-clean-drawer ${menuOpen ? "open" : ""}`}>
+        <button className="mobile-clean-close" onClick={() => setMenuOpen(false)}>
+          ×
+        </button>
+
+        <img src={logo} alt="HighSpeed" className="mobile-clean-logo" />
+
+        <nav className="mobile-clean-nav">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => openSection(item.id)}
+              className={section === item.id ? "active" : ""}
+            >
+              <span>{item.icon}</span>
+              <b>{item.label}</b>
+            </button>
+          ))}
+
+          <button onClick={logout} className="logout">
+            <span>🚪</span>
+            <b>Salir</b>
+          </button>
+        </nav>
+      </aside>
+
+      <main className="mobile-clean-content">
+        {renderSection()}
+      </main>
+    </div>
+  );
+}
+
+export default MobileDashboard;

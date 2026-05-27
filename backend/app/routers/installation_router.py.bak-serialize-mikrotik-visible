@@ -1,0 +1,1446 @@
+from datetime import datetime
+from ipaddress import IPv4Address
+from types import SimpleNamespace
+from typing import Optional, Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.database import SessionLocal, engine
+from app.auth.dependencies import require_roles
+from app.models.installation_model import Installation
+from app.models.customer_model import Customer
+from app.models.plan_model import Plan
+from app.models.router_model import Router
+
+
+router = APIRouter()
+
+
+class InstallationCreate(BaseModel):
+    customer_id: int
+    router_id: Optional[int] = None
+    technician: Optional[str] = ""
+    scheduled_date: Optional[str] = ""
+    address: Optional[str] = ""
+    installation_type: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class NewCustomerForInstallation(BaseModel):
+    name: str
+    last_name: Optional[str] = ""
+    phone: Optional[str] = ""
+    zone: Optional[str] = ""
+    address: Optional[str] = ""
+    pppoe_username: str
+    pppoe_password: str
+    remote_address: str
+    plan_id: Optional[int] = None
+    router_id: Optional[int] = None
+    status: Optional[str] = "pending_installation"
+
+
+class InstallationWithoutCustomerId(BaseModel):
+    router_id: Optional[int] = None
+    technician: Optional[str] = ""
+    scheduled_date: Optional[str] = ""
+    address: Optional[str] = ""
+    installation_type: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class InstallationWithCustomerCreate(BaseModel):
+    customer: NewCustomerForInstallation
+    installation: InstallationWithoutCustomerId
+
+
+def ensure_installation_columns():
+    dialect = engine.dialect.name
+
+    try:
+        if dialect == "postgresql":
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS router_id INTEGER"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS technician VARCHAR"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS scheduled_date VARCHAR"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS address VARCHAR"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS installation_type VARCHAR"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS notes TEXT"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'pending'"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS created_at TIMESTAMP"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS mikrotik_status VARCHAR"))
+                conn.execute(text("ALTER TABLE installations ADD COLUMN IF NOT EXISTS mikrotik_message TEXT"))
+            return
+
+        if dialect == "sqlite":
+            with engine.begin() as conn:
+                result = conn.execute(text("PRAGMA table_info(installations)"))
+                columns = [row[1] for row in result.fetchall()]
+
+                if "router_id" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN router_id INTEGER"))
+                if "technician" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN technician VARCHAR"))
+                if "scheduled_date" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN scheduled_date VARCHAR"))
+                if "address" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN address VARCHAR"))
+                if "installation_type" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN installation_type VARCHAR"))
+                if "notes" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN notes TEXT"))
+                if "status" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN status VARCHAR DEFAULT 'pending'"))
+                if "created_at" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN created_at DATETIME"))
+                if "updated_at" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN updated_at DATETIME"))
+                if "completed_at" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN completed_at DATETIME"))
+                if "cancelled_at" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN cancelled_at DATETIME"))
+                if "mikrotik_status" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN mikrotik_status VARCHAR"))
+                if "mikrotik_message" not in columns:
+                    conn.execute(text("ALTER TABLE installations ADD COLUMN mikrotik_message TEXT"))
+            return
+
+    except Exception as e:
+        print("Error verificando columnas de installations:", e)
+
+
+def get_db():
+    ensure_installation_columns()
+
+    db = SessionLocal()
+
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def format_datetime(value):
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    return str(value)
+
+
+def get_first_attr(obj: Any, names: list[str], default=None):
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+
+            if value not in [None, ""]:
+                return value
+
+    return default
+
+
+def set_first_existing_attr(obj: Any, names: list[str], value):
+    if value in [None, ""]:
+        return
+
+    for name in names:
+        if hasattr(obj, name):
+            setattr(obj, name, value)
+            return
+
+
+
+
+def get_router_display_name(router: Optional[Router]):
+    if not router:
+        return None
+
+    name = get_first_attr(router, ["name", "router_name", "identity"], None)
+    host = get_first_attr(router, ["host", "ip", "address"], None)
+
+    if name and host:
+        return f"{name} ({host})"
+
+    return name or host or f"Router {router.id}"
+
+
+def serialize_router(router: Router):
+    return {
+        "id": router.id,
+        "name": get_first_attr(router, ["name", "router_name", "identity"], f"Router {router.id}"),
+        "host": get_first_attr(router, ["host", "ip", "address"], ""),
+        "port": get_first_attr(router, ["port", "api_port"], ""),
+        "status": get_first_attr(router, ["status", "enabled"], ""),
+    }
+
+
+def get_mikrotik_api_for_router(db: Session, router_id: Optional[int] = None):
+    """
+    Si se selecciona router, abre conexión usando Router model.
+    Si no se selecciona, usa el mikrotik_service actual como fallback.
+    """
+
+    try:
+        from app.services import mikrotik_service
+    except Exception as e:
+        raise Exception(f"No se pudo importar mikrotik_service: {str(e)}")
+
+    if not router_id:
+        return mikrotik_service.get_mikrotik_api(), None
+
+    router = db.query(Router).filter(Router.id == router_id).first()
+
+    if not router:
+        raise Exception("Router MikroTik no encontrado")
+
+    host = get_first_attr(router, ["host", "ip", "address"])
+    username = get_first_attr(router, ["username", "user", "usuario"])
+    password = get_first_attr(router, ["password", "pass", "clave"])
+    port = get_first_attr(router, ["port", "api_port"], 8728)
+
+    if not host or not username or not password:
+        raise Exception("El router seleccionado no tiene host, usuario o password configurado")
+
+    try:
+        import routeros_api
+
+        connection = routeros_api.RouterOsApiPool(
+            host=host,
+            username=username,
+            password=password,
+            port=int(port or 8728),
+            plaintext_login=True,
+        )
+
+        return connection.get_api(), router
+
+    except Exception as e:
+        raise Exception(f"No se pudo conectar al router seleccionado: {str(e)}")
+
+
+def get_customer_plan(db: Session, customer: Customer):
+    plan_id = get_first_attr(customer, ["plan_id", "internet_plan_id"])
+
+    if not plan_id:
+        return None
+
+    try:
+        return db.query(Plan).filter(Plan.id == plan_id).first()
+    except Exception:
+        return None
+
+
+def get_customer_pppoe_data(db: Session, customer: Customer):
+    plan = get_customer_plan(db, customer)
+
+    pppoe_username = get_first_attr(
+        customer,
+        ["pppoe_username", "username_pppoe", "username"],
+    )
+
+    pppoe_password = get_first_attr(
+        customer,
+        ["pppoe_password", "password_pppoe", "pppoe_pass", "password"],
+    )
+
+    remote_address = get_first_attr(
+        customer,
+        ["remote_address", "ip", "ip_address"],
+    )
+
+    profile = "default"
+
+    if plan:
+        profile = get_first_attr(
+            plan,
+            ["mikrotik_profile", "pppoe_profile", "profile", "name"],
+            "default",
+        )
+
+    return {
+        "name": pppoe_username,
+        "password": pppoe_password,
+        "remote_address": remote_address,
+        "profile": profile,
+    }
+
+
+def add_customer_to_mikrotik(db: Session, customer: Customer, router_id: Optional[int] = None):
+    pppoe_data = get_customer_pppoe_data(db, customer)
+
+    username = pppoe_data["name"]
+    password = pppoe_data["password"]
+    remote_address = pppoe_data["remote_address"]
+    profile = pppoe_data["profile"]
+
+    missing = []
+
+    if not username:
+        missing.append("usuario PPPoE")
+
+    if not password:
+        missing.append("password PPPoE")
+
+    if not remote_address:
+        missing.append("Remote Address PPPoE")
+
+    if missing:
+        return {
+            "status": "skipped",
+            "message": "No se agregó a MikroTik. Faltan datos: " + ", ".join(missing),
+        }
+
+    try:
+        from app.services import mikrotik_service
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"No se pudo importar mikrotik_service: {str(e)}",
+        }
+
+    secret_object = SimpleNamespace(
+        name=username,
+        username=username,
+        password=password,
+        service="pppoe",
+        profile=profile or "default",
+        remote_address=remote_address,
+        comment=f"Cliente ID {customer.id}",
+    )
+
+    payload = {
+        "name": username,
+        "username": username,
+        "password": password,
+        "service": "pppoe",
+        "profile": profile or "default",
+        "remote_address": remote_address,
+        "comment": f"Cliente ID {customer.id}",
+    }
+
+
+    if router_id:
+        try:
+            api, router = get_mikrotik_api_for_router(db, router_id)
+            secret_resource = api.get_resource("/ppp/secret")
+
+            secret_resource.add(
+                name=username,
+                password=password,
+                service="pppoe",
+                profile=profile or "default",
+                **{
+                    "remote-address": remote_address,
+                    "comment": f"Cliente ID {customer.id}",
+                },
+            )
+
+            return {
+                "status": "ok",
+                "message": f"Cliente agregado a MikroTik en {get_router_display_name(router)}",
+                "result": None,
+            }
+        except Exception as e:
+            last_direct_error = str(e)
+    else:
+        last_direct_error = None
+
+    candidate_functions = [
+        "create_pppoe_secret",
+        "add_pppoe_secret",
+        "add_mikrotik_pppoe_secret",
+        "add_mikrotik_secret",
+        "add_secret",
+    ]
+
+    last_error = None
+
+    for function_name in candidate_functions:
+        function = getattr(mikrotik_service, function_name, None)
+
+        if not callable(function):
+            continue
+
+        try:
+            if function_name == "create_pppoe_secret":
+                result = function(secret_object)
+            else:
+                try:
+                    result = function(**payload)
+                except TypeError:
+                    result = function(secret_object)
+
+            return {
+                "status": "ok",
+                "message": f"Cliente agregado a MikroTik con {function_name}",
+                "result": result,
+            }
+
+        except Exception as e:
+            last_error = str(e)
+
+    return {
+        "status": "error",
+        "message": (
+            "No se pudo agregar a MikroTik. No se encontró una función compatible en mikrotik_service."
+            if not last_error
+            else f"No se pudo agregar a MikroTik: {last_direct_error or last_error}"
+        ),
+    }
+
+
+def serialize_installation(installation: Installation, customer: Optional[Customer] = None):
+    customer_name = None
+
+    if customer:
+        customer_name = f"{get_first_attr(customer, ['name', 'first_name', 'nombre'], '') or ''} {get_first_attr(customer, ['last_name', 'lastname', 'apellido'], '') or ''}".strip()
+
+    return {
+        "id": getattr(installation, "id", None),
+        "customer_id": getattr(installation, "customer_id", None),
+        "router_id": getattr(installation, "router_id", None),
+
+        "customer_name": customer_name,
+        "customer_pppoe_username": (
+            get_first_attr(customer, ["pppoe_username", "username_pppoe", "username"])
+            if customer
+            else None
+        ),
+        "customer_ip": (
+            get_first_attr(customer, ["remote_address", "ip", "ip_address"])
+            if customer
+            else None
+        ),
+        "customer_phone": (
+            get_first_attr(customer, ["phone", "telefono", "cellphone", "mobile"])
+            if customer
+            else None
+        ),
+        "customer_zone": (
+            get_first_attr(customer, ["zone", "zona", "localidad"])
+            if customer
+            else None
+        ),
+        "customer_status": (
+            get_first_attr(customer, ["status", "estado", "state"])
+            if customer
+            else None
+        ),
+
+        "technician": getattr(installation, "technician", ""),
+        "scheduled_date": getattr(installation, "scheduled_date", ""),
+        "address": getattr(installation, "address", ""),
+        "installation_type": getattr(installation, "installation_type", ""),
+        "notes": getattr(installation, "notes", ""),
+
+        "status": getattr(installation, "status", "pending"),
+
+        # Compatibilidad: algunos modelos/tablas viejas no tienen estas columnas
+        # todavía, por eso usamos getattr para evitar error 500 en GET /installations.
+        "created_at": format_datetime(getattr(installation, "created_at", None)),
+        "updated_at": format_datetime(getattr(installation, "updated_at", None)),
+        "completed_at": format_datetime(getattr(installation, "completed_at", None)),
+        "cancelled_at": format_datetime(getattr(installation, "cancelled_at", None)),
+
+        "mikrotik_status": getattr(installation, "mikrotik_status", None),
+        "mikrotik_message": getattr(installation, "mikrotik_message", None),
+    }
+
+
+
+
+
+def normalize_ip_value(value):
+    if value in [None, ""]:
+        return None
+
+    return str(value).strip()
+
+
+def ip_to_int(ip_value):
+    return int(IPv4Address(str(ip_value).strip()))
+
+
+def int_to_ip(value):
+    return str(IPv4Address(value))
+
+
+def parse_pool_ranges(ranges_value):
+    ranges = []
+
+    if not ranges_value:
+        return ranges
+
+    for raw_part in str(ranges_value).split(","):
+        part = raw_part.strip()
+
+        if not part:
+            continue
+
+        if "-" in part:
+            start_ip, end_ip = part.split("-", 1)
+            ranges.append((start_ip.strip(), end_ip.strip()))
+        else:
+            ranges.append((part, part))
+
+    return ranges
+
+
+def count_pool_ranges(ranges):
+    total = 0
+
+    for start_ip, end_ip in ranges:
+        try:
+            total += ip_to_int(end_ip) - ip_to_int(start_ip) + 1
+        except Exception:
+            continue
+
+    return total
+
+
+def ip_in_ranges(ip_value, ranges):
+    try:
+        ip_number = ip_to_int(ip_value)
+    except Exception:
+        return False
+
+    for start_ip, end_ip in ranges:
+        try:
+            if ip_to_int(start_ip) <= ip_number <= ip_to_int(end_ip):
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
+def is_customer_ip_blocking(customer: Customer):
+    """
+    Una IP queda ocupada si pertenece a un cliente activo/vigente.
+    No bloquea clientes dados de baja, cancelados o eliminados.
+    """
+
+    status = get_first_attr(
+        customer,
+        [
+            "status",
+            "estado",
+            "state",
+        ],
+        "",
+    )
+
+    status = str(status or "").strip().lower()
+
+    inactive_statuses = {
+        "inactive",
+        "inactivo",
+        "cancelled",
+        "cancelado",
+        "canceled",
+        "deleted",
+        "eliminado",
+        "baja",
+        "removed",
+    }
+
+    if status in inactive_statuses:
+        return False
+
+    # Si no tiene estado cargado, lo tomamos como vigente para evitar duplicar IP.
+    return True
+
+
+def get_used_customer_remote_addresses(db: Session, only_active_clients: bool = True):
+    customers = db.query(Customer).all()
+
+    used = set()
+
+    for customer in customers:
+        if only_active_clients and not is_customer_ip_blocking(customer):
+            continue
+
+        ip_value = get_first_attr(
+            customer,
+            ["remote_address", "ip", "ip_address"],
+        )
+
+        ip_value = normalize_ip_value(ip_value)
+
+        if ip_value:
+            used.add(ip_value)
+
+    return used
+
+
+def get_used_mikrotik_addresses(
+    db: Session,
+    pool_name: str,
+    router_id: Optional[int] = None,
+    include_all_mikrotik_secrets: bool = False,
+):
+    used = set()
+
+    try:
+        api, router = get_mikrotik_api_for_router(db, router_id)
+
+        # IPs actualmente usadas por pools del MikroTik.
+        try:
+            used_resource = api.get_resource("/ip/pool/used")
+            used_rows = used_resource.get()
+        except Exception:
+            used_rows = []
+
+        for row in used_rows:
+            row_pool = row.get("pool") or row.get("pool-name") or row.get("name")
+            address = row.get("address") or row.get("active-address")
+
+            if address and (not row_pool or str(row_pool).strip().lower() == str(pool_name).strip().lower()):
+                used.add(str(address).strip())
+
+        # PPPoE activos/conectados en MikroTik.
+        try:
+            active_resource = api.get_resource("/ppp/active")
+            active_sessions = active_resource.get()
+        except Exception:
+            active_sessions = []
+
+        for active in active_sessions:
+            address = (
+                active.get("address")
+                or active.get("remote-address")
+                or active.get("remote_address")
+            )
+
+            if address:
+                used.add(str(address).strip())
+
+        # Opcional: bloquear TODOS los secrets existentes.
+        # Por defecto queda apagado para que el listado sea parecido a "clientes activos".
+        if include_all_mikrotik_secrets:
+            try:
+                secret_resource = api.get_resource("/ppp/secret")
+                secrets = secret_resource.get()
+            except Exception:
+                secrets = []
+
+            for secret in secrets:
+                disabled = str(secret.get("disabled", "false")).lower() in [
+                    "true",
+                    "yes",
+                    "1",
+                ]
+
+                if disabled:
+                    continue
+
+                address = (
+                    secret.get("remote-address")
+                    or secret.get("remote_address")
+                    or secret.get("address")
+                )
+
+                if address:
+                    used.add(str(address).strip())
+
+    except Exception:
+        pass
+
+    return used
+
+
+def get_mikrotik_pool_ranges(db: Session, pool_name: str, router_id: Optional[int] = None):
+    try:
+        api, router = get_mikrotik_api_for_router(db, router_id)
+
+        pool_resource = api.get_resource("/ip/pool")
+        pools = pool_resource.get()
+
+        requested = str(pool_name or "").strip()
+        requested_lower = requested.lower()
+
+        selected_pool = None
+
+        for pool in pools:
+            current_name = str(pool.get("name") or "").strip()
+
+            if current_name.lower() == requested_lower:
+                selected_pool = pool
+                break
+
+        # Fallback: if frontend guessed Pool-100M and MikroTik has pool-100M,
+        # the case-insensitive check above handles it. This extra fallback catches
+        # names like "PPPoE-100M" or "pool 100M".
+        if not selected_pool:
+            speed_match = re.search(r"(\d+)\s*m", requested_lower)
+
+            if speed_match:
+                speed = speed_match.group(1)
+
+                for pool in pools:
+                    current_name = str(pool.get("name") or "").strip().lower()
+
+                    if speed + "m" in current_name:
+                        selected_pool = pool
+                        break
+
+        if selected_pool:
+            real_name = selected_pool.get("name")
+            ranges_value = selected_pool.get("ranges") or selected_pool.get("range")
+            return parse_pool_ranges(ranges_value), None, router, real_name
+
+        available_names = ", ".join(
+            str(pool.get("name") or "")
+            for pool in pools
+            if pool.get("name")
+        )
+
+        return (
+            [],
+            f"No se encontró el pool {pool_name}. Pools disponibles: {available_names}",
+            router,
+            requested,
+        )
+
+    except Exception as e:
+        return [], f"No se pudo leer el pool de MikroTik: {str(e)}", None, pool_name
+
+
+def find_available_ips_from_ranges(ranges, used_ips, limit):
+    available = []
+
+    for start_ip, end_ip in ranges:
+        try:
+            start_number = ip_to_int(start_ip)
+            end_number = ip_to_int(end_ip)
+        except Exception:
+            continue
+
+        for value in range(start_number, end_number + 1):
+            candidate_ip = int_to_ip(value)
+
+            if candidate_ip not in used_ips:
+                available.append(candidate_ip)
+
+            if len(available) >= limit:
+                return available
+
+    return available
+
+
+
+
+
+
+@router.get("/installations/mikrotik-routers")
+def get_installation_mikrotik_routers(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    routers = db.query(Router).order_by(Router.id.desc()).all()
+
+    return {
+        "status": "ok",
+        "routers": [serialize_router(router) for router in routers],
+    }
+
+
+
+
+@router.get("/installations/mikrotik-pools")
+def get_installation_mikrotik_pools(
+    router_id: int = Query(..., description="ID del router MikroTik seleccionado"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    """
+    Lista los IP Pools reales del router seleccionado.
+    Esto evita escribir manualmente el nombre del pool.
+    """
+
+    try:
+        api, router = get_mikrotik_api_for_router(db, router_id)
+
+        pool_resource = api.get_resource("/ip/pool")
+        pools = pool_resource.get()
+
+        result = []
+
+        for pool in pools:
+            name = pool.get("name")
+            ranges_value = pool.get("ranges") or pool.get("range") or ""
+            ranges = parse_pool_ranges(ranges_value)
+            total_count = count_pool_ranges(ranges)
+
+            if name:
+                result.append({
+                    "name": name,
+                    "ranges": ranges_value,
+                    "total_count": total_count,
+                })
+
+        return {
+            "status": "ok",
+            "router_id": router_id,
+            "router_name": get_router_display_name(router),
+            "pools": result,
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "router_id": router_id,
+            "message": f"No se pudieron leer los pools del router: {str(e)}",
+            "pools": [],
+        }
+
+
+@router.get("/installations/remote-address-pool/available")
+def get_remote_address_pool_available(
+    router_id: Optional[int] = Query(
+        default=None,
+        description="ID del router MikroTik seleccionado",
+    ),
+    pool_name: str = Query(
+        default="Remote Address PPPoE",
+        description="Nombre exacto del IP Pool en MikroTik",
+    ),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    only_active_clients: bool = Query(
+        default=True,
+        description="Si está activo, descarta IPs usadas por clientes activos/vigentes del CRM.",
+    ),
+    include_all_mikrotik_secrets: bool = Query(
+        default=False,
+        description="Si está activo, también descarta IPs de todos los PPP secrets habilitados.",
+    ),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    """
+    Devuelve IPs libres del pool Remote Address PPPoE de MikroTik.
+    También cruza contra las IPs ya guardadas en clientes locales.
+    """
+
+    clean_pool_name = str(pool_name or "Remote Address PPPoE").strip()
+
+    ranges, warning, router, real_pool_name = get_mikrotik_pool_ranges(db, clean_pool_name, router_id)
+
+    if not ranges:
+        return {
+            "status": "warning",
+            "router_id": router_id,
+            "router_name": get_router_display_name(router) if "router" in locals() and router else None,
+            "pool_name": real_pool_name if "real_pool_name" in locals() else clean_pool_name,
+            "message": warning or "No hay rangos configurados para el pool",
+            "total_count": 0,
+            "used_count": 0,
+            "available_count": 0,
+            "available_ips": [],
+        }
+
+    local_used = get_used_customer_remote_addresses(
+        db,
+        only_active_clients=only_active_clients,
+    )
+
+    pool_for_used_lookup = (
+        real_pool_name if "real_pool_name" in locals() else clean_pool_name
+    )
+
+    mikrotik_used = get_used_mikrotik_addresses(
+        db,
+        pool_for_used_lookup,
+        router_id,
+        include_all_mikrotik_secrets=include_all_mikrotik_secrets,
+    )
+
+    used_ips = local_used.union(mikrotik_used)
+
+    used_in_pool = {
+        ip_value
+        for ip_value in used_ips
+        if ip_in_ranges(ip_value, ranges)
+    }
+
+    total_count = count_pool_ranges(ranges)
+    available_count = max(total_count - len(used_in_pool), 0)
+
+    available_ips = find_available_ips_from_ranges(
+        ranges=ranges,
+        used_ips=used_ips,
+        limit=limit,
+    )
+
+    return {
+        "status": "ok",
+        "router_id": router_id,
+        "router_name": get_router_display_name(router),
+        "pool_name": real_pool_name if "real_pool_name" in locals() else clean_pool_name,
+        "message": (
+            "IPs libres obtenidas correctamente. "
+            "Se excluyeron IPs con clientes activos/vigentes y PPPoE activos."
+        ),
+        "total_count": total_count,
+        "used_count": len(used_in_pool),
+        "local_used_count": len(local_used),
+        "mikrotik_used_count": len(mikrotik_used),
+        "available_count": available_count,
+        "filter_mode": "clientes_activos_y_pppoe_activos",
+        "include_all_mikrotik_secrets": include_all_mikrotik_secrets,
+        "available_ips": available_ips,
+    }
+
+
+@router.get("/installations/available-ips")
+def get_available_ips(
+    prefix: str = Query(
+        default="192.168.166",
+        description="Prefijo de red. Ejemplo: 192.168.166",
+    ),
+    start: int = Query(default=2, ge=1, le=254),
+    end: int = Query(default=254, ge=1, le=254),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    """
+    Busca IPs disponibles usando las IPs ya cargadas en clientes.
+    Ejemplo: prefix=192.168.166 devuelve 192.168.166.2, 192.168.166.3, etc.
+    """
+
+    clean_prefix = str(prefix or "").strip().rstrip(".")
+
+    if not clean_prefix:
+        raise HTTPException(status_code=400, detail="Prefijo inválido")
+
+    if start > end:
+        raise HTTPException(
+            status_code=400,
+            detail="El inicio del rango no puede ser mayor al final",
+        )
+
+    customers = db.query(Customer).all()
+
+    used_ips = set()
+
+    for customer in customers:
+        ip = get_first_attr(
+            customer,
+            ["remote_address", "ip", "ip_address"],
+        )
+
+        if ip:
+            used_ips.add(str(ip).strip())
+
+    available_ips = []
+
+    for host in range(start, end + 1):
+        candidate_ip = f"{clean_prefix}.{host}"
+
+        if candidate_ip not in used_ips:
+            available_ips.append(candidate_ip)
+
+        if len(available_ips) >= limit:
+            break
+
+    return {
+        "status": "ok",
+        "prefix": clean_prefix,
+        "start": start,
+        "end": end,
+        "limit": limit,
+        "used_count": len(used_ips),
+        "available_count": len(available_ips),
+        "available_ips": available_ips,
+    }
+
+
+@router.get("/installations")
+def get_installations(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    installations = db.query(Installation).order_by(Installation.id.desc()).all()
+
+    customer_ids = list({
+        installation.customer_id
+        for installation in installations
+        if installation.customer_id
+    })
+
+    customers = (
+        db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+        if customer_ids
+        else []
+    )
+
+    customers_by_id = {customer.id: customer for customer in customers}
+
+    return [
+        serialize_installation(installation, customers_by_id.get(installation.customer_id))
+        for installation in installations
+    ]
+
+
+@router.post("/installations")
+def create_installation(
+    installation_data: InstallationCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    customer = db.query(Customer).filter(Customer.id == installation_data.customer_id).first()
+
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    installation = Installation(
+        customer_id=installation_data.customer_id,
+        router_id=installation_data.router_id,
+        technician=installation_data.technician or "",
+        scheduled_date=installation_data.scheduled_date or "",
+        address=installation_data.address or "",
+        installation_type=installation_data.installation_type or "",
+        notes=installation_data.notes or "",
+        status="pending",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        mikrotik_status="pending",
+        mikrotik_message="Pendiente de completar instalación",
+    )
+
+    db.add(installation)
+    db.commit()
+    db.refresh(installation)
+
+    return serialize_installation(installation, customer)
+
+
+
+def safe_python_default_for_column(column):
+    """
+    Valor por defecto seguro para columnas NOT NULL antiguas.
+    Evita que falle la creación de cliente si la tabla tiene campos obligatorios
+    que el formulario nuevo todavía no usa.
+    """
+
+    try:
+        python_type = column.type.python_type
+    except Exception:
+        python_type = str
+
+    if python_type is int:
+        return 0
+
+    if python_type is float:
+        return 0
+
+    if python_type is bool:
+        return False
+
+    if python_type is datetime:
+        return datetime.now()
+
+    return ""
+
+
+def build_customer_kwargs(data: NewCustomerForInstallation):
+    columns = Customer.__table__.columns
+    column_names = {column.name for column in columns}
+
+    values = {}
+
+    def put(names, value):
+        if value in [None, ""]:
+            return
+
+        for name in names:
+            if name in column_names:
+                values[name] = value
+                return
+
+    put(["name", "first_name", "nombre"], data.name)
+    put(["last_name", "lastname", "apellido"], data.last_name)
+    put(["phone", "telefono", "cellphone", "mobile"], data.phone)
+    put(["zone", "zona", "localidad"], data.zone)
+    put(["address", "direction", "direccion"], data.address)
+    put(["pppoe_username", "username_pppoe", "username", "user"], data.pppoe_username)
+    put(["pppoe_password", "password_pppoe", "pppoe_pass", "password"], data.pppoe_password)
+    put(["remote_address", "ip", "ip_address"], data.remote_address)
+    put(["plan_id", "internet_plan_id"], data.plan_id)
+    put(["router_id", "mikrotik_router_id"], data.router_id)
+    put(["status", "estado"], data.status or "pending_installation")
+
+    if "created_at" in column_names and "created_at" not in values:
+        values["created_at"] = datetime.now()
+
+    if "updated_at" in column_names and "updated_at" not in values:
+        values["updated_at"] = datetime.now()
+
+    # Completa columnas obligatorias antiguas sin default.
+    for column in columns:
+        if column.name in values:
+            continue
+
+        if column.primary_key:
+            continue
+
+        if column.nullable:
+            continue
+
+        if column.default is not None or column.server_default is not None:
+            continue
+
+        values[column.name] = safe_python_default_for_column(column)
+
+    return values
+
+
+def find_existing_customer_by_pppoe_or_ip(
+    db: Session,
+    pppoe_username: str,
+    remote_address: str,
+):
+    existing = []
+
+    customers = db.query(Customer).all()
+
+    for customer in customers:
+        customer_user = get_first_attr(
+            customer,
+            ["pppoe_username", "username_pppoe", "username", "user"],
+            "",
+        )
+
+        customer_ip = get_first_attr(
+            customer,
+            ["remote_address", "ip", "ip_address"],
+            "",
+        )
+
+        if pppoe_username and str(customer_user).strip() == str(pppoe_username).strip():
+            existing.append({
+                "field": "usuario PPPoE",
+                "value": pppoe_username,
+                "customer_id": customer.id,
+            })
+
+        if remote_address and str(customer_ip).strip() == str(remote_address).strip():
+            existing.append({
+                "field": "IP",
+                "value": remote_address,
+                "customer_id": customer.id,
+            })
+
+    return existing
+
+
+@router.post("/installations/create-with-customer")
+def create_installation_with_customer(
+    data: InstallationWithCustomerCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico", "operador"])),
+):
+    try:
+        duplicated = find_existing_customer_by_pppoe_or_ip(
+            db,
+            data.customer.pppoe_username,
+            data.customer.remote_address,
+        )
+
+        if duplicated:
+            duplicate_text = "; ".join(
+                [
+                    f"{item['field']} {item['value']} ya existe en cliente ID {item['customer_id']}"
+                    for item in duplicated
+                ]
+            )
+
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede guardar. {duplicate_text}",
+            )
+
+        customer_kwargs = build_customer_kwargs(data.customer)
+        customer = Customer(**customer_kwargs)
+
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+
+        installation_kwargs = {
+            "customer_id": customer.id,
+            "technician": data.installation.technician or "",
+            "scheduled_date": data.installation.scheduled_date or "",
+            "address": data.installation.address or data.customer.address or "",
+            "installation_type": data.installation.installation_type or "",
+            "notes": data.installation.notes or "",
+            "status": "pending",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "mikrotik_status": "pending",
+            "mikrotik_message": "Pendiente de completar instalación",
+        }
+
+        if hasattr(Installation, "router_id"):
+            installation_kwargs["router_id"] = (
+                data.installation.router_id or data.customer.router_id
+            )
+
+        # Compatibilidad con modelos viejos:
+        # solo enviamos al constructor los campos que existen en Installation.
+        valid_installation_columns = {
+            column.name for column in Installation.__table__.columns
+        }
+
+        installation_kwargs = {
+            key: value
+            for key, value in installation_kwargs.items()
+            if key in valid_installation_columns
+        }
+
+        installation = Installation(**installation_kwargs)
+
+        db.add(installation)
+        db.commit()
+        db.refresh(installation)
+
+        return {
+            "status": "ok",
+            "message": "Cliente nuevo e instalación creados correctamente.",
+            "customer_id": customer.id,
+            "installation": serialize_installation(installation, customer),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as e:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo guardar la instalación: {str(e)}",
+        )
+
+
+@router.put("/installations/{installation_id}/complete")
+def complete_installation(
+    installation_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico"])),
+):
+    installation = (
+        db.query(Installation)
+        .filter(Installation.id == installation_id)
+        .first()
+    )
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+
+    customer = (
+        db.query(Customer)
+        .filter(Customer.id == installation.customer_id)
+        .first()
+    )
+
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    # Al completar instalación, el cliente queda activo en el CRM.
+    if hasattr(customer, "status"):
+        customer.status = "active"
+
+    if hasattr(customer, "estado"):
+        customer.estado = "active"
+
+    # Si el cliente no tenía router_id pero la instalación sí, lo copiamos.
+    installation_router_id = getattr(installation, "router_id", None)
+
+    if installation_router_id and hasattr(customer, "router_id"):
+        customer.router_id = installation_router_id
+
+    if hasattr(installation, "status"):
+        installation.status = "completed"
+
+    if hasattr(installation, "updated_at"):
+        installation.updated_at = datetime.now()
+
+    if hasattr(installation, "completed_at"):
+        installation.completed_at = datetime.now()
+
+    if hasattr(installation, "cancelled_at"):
+        installation.cancelled_at = None
+
+    # Al completar, también se crea/habilita el PPPoE Secret en el MikroTik.
+    final_router_id = installation_router_id or getattr(customer, "router_id", None)
+
+    # Si no viene router_id desde la APK/web, usamos el primer router cargado.
+    if not final_router_id:
+        default_router = db.query(Router).order_by(Router.id.asc()).first()
+
+        if default_router:
+            final_router_id = default_router.id
+
+            if hasattr(customer, "router_id"):
+                customer.router_id = final_router_id
+
+            if hasattr(installation, "router_id"):
+                installation.router_id = final_router_id
+
+    mikrotik_result = add_customer_to_mikrotik(
+        db,
+        customer,
+        final_router_id,
+    )
+
+    # Guardar resultado MikroTik inmediatamente en la instalación.
+    installation.router_id = final_router_id
+    installation.mikrotik_status = mikrotik_result.get("status")
+    installation.mikrotik_message = mikrotik_result.get("message")
+
+    db.execute(
+        text("""
+            UPDATE installations
+            SET
+                router_id = :router_id,
+                mikrotik_status = :mikrotik_status,
+                mikrotik_message = :mikrotik_message
+            WHERE id = :installation_id
+        """),
+        {
+            "router_id": final_router_id,
+            "mikrotik_status": mikrotik_result.get("status"),
+            "mikrotik_message": mikrotik_result.get("message"),
+            "installation_id": installation.id,
+        },
+    )
+
+    if hasattr(installation, "mikrotik_status"):
+        installation.mikrotik_status = mikrotik_result.get("status")
+
+    if hasattr(installation, "mikrotik_message"):
+        installation.mikrotik_message = mikrotik_result.get("message")
+
+    # Guardado directo por SQL para asegurar que /installations lo muestre.
+    try:
+        db.execute(
+            text("""
+                UPDATE installations
+                SET
+                    router_id = :router_id,
+                    mikrotik_status = :mikrotik_status,
+                    mikrotik_message = :mikrotik_message
+                WHERE id = :installation_id
+            """),
+            {
+                "router_id": final_router_id,
+                "mikrotik_status": mikrotik_result.get("status"),
+                "mikrotik_message": mikrotik_result.get("message"),
+                "installation_id": installation.id,
+            },
+        )
+    except Exception as e:
+        print("No se pudo guardar estado MikroTik en installations:", e)
+
+
+    # Forzar guardado de router_id y estado MikroTik para que GET /installations lo muestre.
+    try:
+        if 'final_router_id' not in locals():
+            final_router_id = installation_router_id or getattr(customer, "router_id", None)
+
+        if hasattr(installation, "router_id"):
+            installation.router_id = final_router_id
+
+        if hasattr(installation, "mikrotik_status"):
+            installation.mikrotik_status = mikrotik_result.get("status")
+
+        if hasattr(installation, "mikrotik_message"):
+            installation.mikrotik_message = mikrotik_result.get("message")
+
+        db.execute(
+            text("""
+                UPDATE installations
+                SET
+                    router_id = :router_id,
+                    mikrotik_status = :mikrotik_status,
+                    mikrotik_message = :mikrotik_message
+                WHERE id = :installation_id
+            """),
+            {
+                "router_id": final_router_id,
+                "mikrotik_status": mikrotik_result.get("status"),
+                "mikrotik_message": mikrotik_result.get("message"),
+                "installation_id": installation.id,
+            },
+        )
+    except Exception as e:
+        print("ERROR guardando estado MikroTik en installation:", e)
+
+    db.commit()
+    db.refresh(installation)
+    db.refresh(customer)
+
+    return {
+        "status": "ok",
+        "message": (
+            "Instalación completada. Cliente activado y enviado a MikroTik."
+        ),
+        "installation": serialize_installation(installation, customer),
+        "customer": {
+            "id": customer.id,
+            "status": getattr(customer, "status", None),
+            "pppoe_username": getattr(customer, "pppoe_username", None),
+            "remote_address": getattr(customer, "remote_address", None),
+            "router_id": getattr(customer, "router_id", None),
+        },
+        "mikrotik": mikrotik_result,
+    }
+
+
+@router.put("/installations/{installation_id}/cancel")
+def cancel_installation(
+    installation_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(["admin", "tecnico"])),
+):
+    installation = db.query(Installation).filter(Installation.id == installation_id).first()
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+
+    customer = db.query(Customer).filter(Customer.id == installation.customer_id).first()
+
+    if hasattr(installation, "status"):
+        installation.status = "cancelled"
+
+    if hasattr(installation, "updated_at"):
+        installation.updated_at = datetime.now()
+
+    if hasattr(installation, "cancelled_at"):
+        installation.cancelled_at = datetime.now()
+
+    if hasattr(installation, "mikrotik_status"):
+        installation.mikrotik_status = "cancelled"
+
+    if hasattr(installation, "mikrotik_message"):
+        installation.mikrotik_message = "Instalación cancelada. No se agregó a MikroTik."
+
+    db.commit()
+    db.refresh(installation)
+
+    return {
+        "status": "ok",
+        "message": "Instalación cancelada.",
+        "installation": serialize_installation(installation, customer),
+    }

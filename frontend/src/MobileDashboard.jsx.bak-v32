@@ -1,0 +1,314 @@
+import { useState } from "react";
+import logo from "./assets/logo.png";
+
+import RouterManager from "./RouterManager";
+import CustomerManager from "./CustomerManager";
+import PlanManager from "./PlanManager";
+import OnlineClients from "./OnlineClients";
+import ClientTraffic from "./ClientTraffic";
+import AutoCutManager from "./AutoCutManager";
+import BackupImportManager from "./BackupImportManager";
+
+const menuItems = [
+  { id: "home", label: "Inicio", icon: "🏠" },
+  { id: "customers", label: "Clientes", icon: "👥" },
+  { id: "plans", label: "Planes", icon: "📶" },
+  { id: "routers", label: "Routers", icon: "🖧" },
+  { id: "installations", label: "Instalaciones", icon: "🛠️" },
+  { id: "tickets", label: "Tickets", icon: "🎫" },
+  { id: "invoices", label: "Facturas", icon: "🧾" },
+  { id: "payments", label: "Pagos", icon: "💵" },
+  { id: "online", label: "Online", icon: "🟢" },
+  { id: "traffic", label: "Tráfico", icon: "📊" },
+  { id: "autocut", label: "Corte automático", icon: "⚡" },
+  { id: "backup", label: "Backup", icon: "💾" },
+  { id: "company", label: "Empresa", icon: "🏢" },
+  { id: "users", label: "Usuarios", icon: "👤" },
+  { id: "notifications", label: "Notificaciones", icon: "🔔" },
+  { id: "clientStatus", label: "Estado clientes", icon: "📋" },
+];
+
+function MobileDashboard({ onLogout }) {
+  const [section, setSection] = useState("home");
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const openSection = (id) => {
+    setSection(id);
+    setMenuOpen(false);
+  };
+
+  const logout = () => {
+    localStorage.clear();
+    onLogout();
+  };
+
+  const activeTitle =
+    menuItems.find((item) => item.id === section)?.label || "HighSpeed";
+
+  const renderPendingModule = (name) => (
+    <div style={{
+      background: "#fff",
+      borderRadius: 24,
+      padding: 20,
+      boxShadow: "0 2px 10px rgba(15,23,42,.12)",
+      border: "1px solid #e2e8f0"
+    }}>
+      <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>{name}</h1>
+      <p style={{ color: "#64748b", fontSize: 16, marginTop: 10 }}>
+        Este módulo ya aparece en el menú móvil. Falta conectarlo a su vista completa.
+      </p>
+    </div>
+  );
+
+  const renderSection = () => {
+    if (section === "customers") return <CustomerManager />;
+    if (section === "plans") return <PlanManager />;
+    if (section === "routers") return <RouterManager />;
+    if (section === "online") return <OnlineClients />;
+    if (section === "traffic") return <ClientTraffic />;
+    if (section === "autocut") return <AutoCutManager />;
+    if (section === "backup") return <BackupImportManager />;
+
+    if (section === "installations") return renderPendingModule("Instalaciones");
+    if (section === "tickets") return renderPendingModule("Tickets");
+    if (section === "invoices") return renderPendingModule("Facturas");
+    if (section === "payments") return renderPendingModule("Pagos");
+    if (section === "company") return renderPendingModule("Empresa");
+    if (section === "users") return renderPendingModule("Usuarios");
+    if (section === "notifications") return renderPendingModule("Notificaciones");
+    if (section === "clientStatus") return renderPendingModule("Estado clientes");
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 24,
+            padding: 20,
+            boxShadow: "0 2px 10px rgba(15,23,42,.12)",
+            border: "1px solid #e2e8f0",
+          }}
+        >
+          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>
+            Panel móvil HighSpeed
+          </h1>
+          <p style={{ color: "#64748b", fontSize: 17, marginTop: 10 }}>
+            Seleccioná un módulo desde el botón de menú.
+          </p>
+        </div>
+
+        {menuItems
+          .filter((item) => item.id !== "home")
+          .map((item) => (
+            <button
+              key={item.id}
+              onClick={() => openSection(item.id)}
+              style={{
+                width: "100%",
+                minHeight: 110,
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 22,
+                padding: 20,
+                textAlign: "left",
+                boxShadow: "0 2px 10px rgba(15,23,42,.10)",
+              }}
+            >
+              <div style={{ fontSize: 42 }}>{item.icon}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, marginTop: 10 }}>
+                {item.label}
+              </div>
+            </button>
+          ))}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        minHeight: "100dvh",
+        background: "#f1f5f9",
+        overflowX: "hidden",
+      }}
+    >
+      <header
+        style={{
+          width: "100vw",
+          height: 62,
+          background: "#00b98a",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          gap: 18,
+          padding: "0 18px",
+          boxSizing: "border-box",
+          position: "sticky",
+          top: 0,
+          zIndex: 1000,
+          boxShadow: "0 2px 8px rgba(0,0,0,.18)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setMenuOpen(true)}
+          style={{
+            width: 46,
+            height: 46,
+            border: 0,
+            background: "transparent",
+            color: "#fff",
+            fontSize: 34,
+            lineHeight: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 0,
+          }}
+        >
+          ☰
+        </button>
+
+        <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: 0.3 }}>
+          HighSpeed
+        </div>
+      </header>
+
+      {menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.55)",
+            zIndex: 1999,
+          }}
+        />
+      )}
+
+      <aside
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "82vw",
+          maxWidth: 340,
+          minWidth: 270,
+          height: "100dvh",
+          background: "linear-gradient(180deg, #00b98a 0%, #009f72 100%)",
+          color: "#fff",
+          zIndex: 2000,
+          transform: menuOpen ? "translateX(0)" : "translateX(-110%)",
+          transition: "transform .25s ease",
+          padding: "22px 18px",
+          boxSizing: "border-box",
+          overflowY: "auto",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setMenuOpen(false)}
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 12,
+            border: 0,
+            background: "transparent",
+            color: "#fff",
+            fontSize: 38,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+
+        <img
+          src={logo}
+          alt="HighSpeed"
+          style={{
+            width: 160,
+            maxWidth: "75%",
+            display: "block",
+            margin: "36px auto 26px auto",
+            background: "#fff",
+            padding: 10,
+            borderRadius: 4,
+          }}
+        />
+
+        <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {menuItems.map((item) => {
+            const active = section === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openSection(item.id)}
+                style={{
+                  width: "100%",
+                  minHeight: 54,
+                  border: 0,
+                  borderRadius: 16,
+                  padding: "10px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  textAlign: "left",
+                  fontSize: 17,
+                  fontWeight: 800,
+                  background: active ? "#fff" : "transparent",
+                  color: active ? "#009f72" : "#fff",
+                }}
+              >
+                <span style={{ fontSize: 25, width: 30 }}>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={logout}
+            style={{
+              width: "100%",
+              minHeight: 54,
+              border: "1px solid rgba(255,255,255,.35)",
+              borderRadius: 16,
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              textAlign: "left",
+              fontSize: 17,
+              fontWeight: 800,
+              background: "rgba(255,255,255,.12)",
+              color: "#fff",
+              marginTop: 14,
+            }}
+          >
+            <span style={{ fontSize: 25, width: 30 }}>🚪</span>
+            <span>Salir</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main
+        style={{
+          width: "100vw",
+          maxWidth: "100vw",
+          padding: 14,
+          boxSizing: "border-box",
+          overflowX: "hidden",
+        }}
+      >
+        <div style={{ width: "100%", overflowX: "hidden" }}>
+          {renderSection()}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default MobileDashboard;

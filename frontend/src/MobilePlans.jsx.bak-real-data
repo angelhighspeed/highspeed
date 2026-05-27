@@ -1,0 +1,103 @@
+import { useEffect, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+const getAuthHeaders = () => ({
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
+  },
+});
+
+function MobilePlans() {
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadPlans = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const res = await axios.get(`${API}/plans`, getAuthHeaders());
+      setPlans(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setError("No se pudieron cargar los planes.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  return (
+    <div className="hsm34-home">
+      <div className="hsm34-card">
+        <h1>Planes de Internet</h1>
+        <p>Lista móvil de planes PPPoE, velocidades y precios.</p>
+      </div>
+
+      {loading && (
+        <div className="hsm34-card">
+          <p>Cargando planes...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm34-card">
+          <p style={{ color: "#dc2626", fontWeight: 700 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading &&
+        !error &&
+        plans.map((plan) => (
+          <div key={plan.id} className="hsm34-card">
+            <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
+              {plan.name || plan.nombre || `Plan #${plan.id}`}
+            </h2>
+
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              <div>
+                <b>Perfil:</b>{" "}
+                {plan.profile || plan.perfil || plan.mikrotik_profile || "-"}
+              </div>
+
+              <div>
+                <b>Descarga:</b>{" "}
+                {plan.download || plan.download_speed || plan.velocidad_bajada || "-"}
+              </div>
+
+              <div>
+                <b>Subida:</b>{" "}
+                {plan.upload || plan.upload_speed || plan.velocidad_subida || "-"}
+              </div>
+
+              <div>
+                <b>Precio:</b>{" "}
+                {plan.price !== undefined
+                  ? `$${plan.price}`
+                  : plan.precio !== undefined
+                  ? `$${plan.precio}`
+                  : "-"}
+              </div>
+
+              <div>
+                <b>Tipo:</b> {plan.type || plan.tipo || "PPPoE"}
+              </div>
+            </div>
+          </div>
+        ))}
+
+      {!loading && !error && plans.length === 0 && (
+        <div className="hsm34-card">
+          <p>No hay planes cargados.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default MobilePlans;

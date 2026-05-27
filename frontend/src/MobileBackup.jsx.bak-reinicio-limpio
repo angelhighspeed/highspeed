@@ -1,0 +1,424 @@
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+
+const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
+
+function getHeaders() {
+  return {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  };
+}
+
+function formatSize(bytes) {
+  const n = Number(bytes || 0);
+
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+
+  return `${n} B`;
+}
+
+function getBackupName(item) {
+  return (
+    item.name ||
+    item.filename ||
+    item.file_name ||
+    item.backup_name ||
+    `Backup #${item.id || "-"}`
+  );
+}
+
+function getBackupDate(item) {
+  return (
+    item.created_at ||
+    item.date ||
+    item.fecha ||
+    item.timestamp ||
+    "-"
+  );
+}
+
+function getBackupSize(item) {
+  return (
+    item.size ||
+    item.file_size ||
+    item.bytes ||
+    0
+  );
+}
+
+function getBackupType(item) {
+  return (
+    item.type ||
+    item.backup_type ||
+    item.tipo ||
+    "Sistema"
+  );
+}
+
+function MobileBackup() {
+  const [backups, setBackups] = useState([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+
+  const loadBackups = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      let res;
+
+      const attempts = [
+        `${API}/backup`,
+        `${API}/backups`,
+        `${API}/backup/list`,
+        `${API}/backups/list`,
+      ];
+
+      for (const url of attempts) {
+        try {
+          res = await axios.get(url, getHeaders());
+          break;
+        } catch (err) {
+          console.warn("Intento backup list falló:", url, err?.response?.status || err?.message);
+        }
+      }
+
+      const data = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.items)
+        ? res.data.items
+        : Array.isArray(res?.data?.backups)
+        ? res.data.backups
+        : [];
+
+      setBackups(data);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los backups.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBackups();
+  }, []);
+
+  const stats = useMemo(() => {
+    let totalSize = 0;
+
+    backups.forEach((item) => {
+      totalSize += Number(getBackupSize(item));
+    });
+
+    return {
+      count: backups.length,
+      totalSize,
+    };
+  }, [backups]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    if (!q) return backups;
+
+    return backups.filter((item) => {
+      const text = [
+        getBackupName(item),
+        getBackupDate(item),
+        getBackupType(item),
+        item.description,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(q);
+    });
+  }, [backups, query]);
+
+  const createBackup = async () => {
+    const ok = confirm("¿Crear un backup nuevo del sistema?");
+
+    if (!ok) return;
+
+    try {
+      setCreating(true);
+
+      let success = false;
+
+      const attempts = [
+        () => axios.post(`${API}/backup`, {}, getHeaders()),
+        () => axios.post(`${API}/backups`, {}, getHeaders()),
+        () => axios.post(`${API}/backup/create`, {}, getHeaders()),
+        () => axios.post(`${API}/backups/create`, {}, getHeaders()),
+        () => axios.post(`${API}/backup/export`, {}, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento crear backup falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para crear backup.");
+      } else {
+        alert("Backup creado correctamente.");
+        await loadBackups();
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const restoreBackup = async (e) => {
+    e.preventDefault();
+
+    if (!selectedFile) {
+      alert("Seleccioná un archivo de backup.");
+      return;
+    }
+
+    const ok = confirm("¿Restaurar este backup? Esta acción puede reemplazar datos actuales.");
+
+    if (!ok) return;
+
+    try {
+      setRestoring(true);
+
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      let success = false;
+
+      const attempts = [
+        () =>
+          axios.post(`${API}/backup/import`, formData, {
+            ...getHeaders(),
+            headers: {
+              ...getHeaders().headers,
+              "Content-Type": "multipart/form-data",
+            },
+          }),
+        () =>
+          axios.post(`${API}/backups/import`, formData, {
+            ...getHeaders(),
+            headers: {
+              ...getHeaders().headers,
+              "Content-Type": "multipart/form-data",
+            },
+          }),
+        () =>
+          axios.post(`${API}/backup/restore`, formData, {
+            ...getHeaders(),
+            headers: {
+              ...getHeaders().headers,
+              "Content-Type": "multipart/form-data",
+            },
+          }),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento restaurar backup falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para importar/restaurar backup.");
+      } else {
+        alert("Backup restaurado correctamente.");
+        setSelectedFile(null);
+        await loadBackups();
+      }
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const downloadBackup = async (item) => {
+    const id = item.id || getBackupName(item);
+
+    const urls = [
+      `${API}/backup/${id}/download`,
+      `${API}/backups/${id}/download`,
+      `${API}/backup/download/${id}`,
+      item.url,
+      item.download_url,
+    ].filter(Boolean);
+
+    for (const url of urls) {
+      try {
+        window.open(url, "_blank");
+        return;
+      } catch {}
+    }
+
+    alert("No hay enlace de descarga disponible.");
+  };
+
+  const deleteBackup = async (item) => {
+    const ok = confirm(`¿Eliminar ${getBackupName(item)}?`);
+
+    if (!ok) return;
+
+    try {
+      const id = item.id || getBackupName(item);
+
+      let success = false;
+
+      const attempts = [
+        () => axios.delete(`${API}/backup/${id}`, getHeaders()),
+        () => axios.delete(`${API}/backups/${id}`, getHeaders()),
+      ];
+
+      for (const attempt of attempts) {
+        try {
+          await attempt();
+          success = true;
+          break;
+        } catch (err) {
+          console.warn("Intento eliminar backup falló:", err?.response?.status || err?.message);
+        }
+      }
+
+      if (!success) {
+        alert("No se encontró endpoint para eliminar backup.");
+      } else {
+        alert("Backup eliminado.");
+        await loadBackups();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo eliminar el backup.");
+    }
+  };
+
+  return (
+    <div className="hsm-backup-page">
+      <section className="hsm-backup-head">
+        <div>
+          <h2>Respaldo</h2>
+          <p>{stats.count} backups disponibles</p>
+        </div>
+
+        <button onClick={createBackup} disabled={creating}>
+          {creating ? "Creando..." : "+ Backup"}
+        </button>
+      </section>
+
+      <section className="hsm-backup-total">
+        <span>Tamaño total</span>
+        <strong>{formatSize(stats.totalSize)}</strong>
+      </section>
+
+      <section className="hsm-backup-search">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar backup por nombre, fecha o tipo..."
+        />
+      </section>
+
+      <section className="hsm-backup-import-card">
+        <h3>Importar / restaurar backup</h3>
+
+        <form onSubmit={restoreBackup} className="hsm-backup-form">
+          <input
+            type="file"
+            accept=".json,.zip,.sql,.bak,.gz,.tar"
+            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+          />
+
+          <button type="submit" disabled={restoring}>
+            {restoring ? "Restaurando..." : "Restaurar backup"}
+          </button>
+        </form>
+      </section>
+
+      <button className="hsm-backup-refresh" onClick={loadBackups}>
+        Actualizar lista
+      </button>
+
+      {loading && (
+        <div className="hsm-card">
+          <p>Cargando backups...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="hsm-card">
+          <p style={{ color: "#dc2626", fontWeight: 800 }}>{error}</p>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="hsm-card">
+          <p>No hay backups para mostrar.</p>
+        </div>
+      )}
+
+      <section className="hsm-backup-list">
+        {filtered.map((item, index) => (
+          <article key={item.id || index} className="hsm-backup-card">
+            <div className="hsm-backup-top">
+              <div className="hsm-backup-icon">💾</div>
+
+              <div className="hsm-backup-main">
+                <h3>{getBackupName(item)}</h3>
+                <span>{getBackupType(item)}</span>
+              </div>
+            </div>
+
+            <div className="hsm-backup-info">
+              <div>
+                <b>Fecha</b>
+                <span>{getBackupDate(item)}</span>
+              </div>
+
+              <div>
+                <b>Tamaño</b>
+                <span>{formatSize(getBackupSize(item))}</span>
+              </div>
+
+              <div>
+                <b>Estado</b>
+                <span>{item.status || item.estado || "Disponible"}</span>
+              </div>
+
+              <div>
+                <b>ID</b>
+                <span>{item.id || "-"}</span>
+              </div>
+            </div>
+
+            <div className="hsm-backup-actions">
+              <button onClick={() => downloadBackup(item)}>Descargar</button>
+              <button className="danger" onClick={() => deleteBackup(item)}>
+                Eliminar
+              </button>
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+export default MobileBackup;

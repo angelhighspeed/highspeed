@@ -12,3 +12,27 @@ build/
 node_modules/
 __pycache__/
 *.pyc
+
+# HighSpeed APK / Android signing
+frontend/android/app/highspeed-release-key.jks
+frontend/android/keystore.properties
+frontend/android/app/build/
+frontend/android/build/
+frontend/public/*.apk
+
+# Backups
+backups_highspeed_reinicio_apk/
+highspeed-auto-backups/
+*.tar.gz
+*.bak
+*.backup
+
+# Local env
+frontend/.env
+frontend/.env.production
+backend/.env
+
+# Python / Node
+backend/venv/
+frontend/node_modules/
+frontend/dist/
