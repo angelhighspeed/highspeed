@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$HOME/highspeed-angel/.highspeed_secrets"
+
 echo "=================================="
 echo " DIAGNÓSTICO HIGHSPEED ISP"
 echo "=================================="
@@ -21,7 +23,7 @@ echo ""
 echo "2) Login admin"
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' \
+  -d '{"username":"admin","password":"angelito0"}' \
   | python3 -c 'import sys,json; 
 try:
  d=json.load(sys.stdin); print(d.get("access_token") or d.get("token") or "")

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$HOME/highspeed-angel/.highspeed_secrets"
+
 BACKUP_DIR="$HOME/highspeed-auto-backups"
 DATE=$(date +"%F_%H-%M")
 OUT="$BACKUP_DIR/highspeed_backup_$DATE.json"
@@ -8,7 +10,7 @@ mkdir -p "$BACKUP_DIR"
 
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' \
+  -d '{"username":"admin","password":"angelito0"}' \
   | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("access_token") or d.get("token") or "")')
 
 if [ -z "$TOKEN" ]; then
