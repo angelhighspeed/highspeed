@@ -1,8 +1,34 @@
+from app.models.router_model import Router
+from app.database import SessionLocal
+import routeros_api
 from datetime import datetime
 from librouteros import connect
 import platform
 import re
 import subprocess
+
+def get_default_router():
+    db = SessionLocal()
+    try:
+        router = db.query(Router).order_by(Router.id.asc()).first()
+        if not router:
+            raise Exception("No hay router configurado")
+        return router
+    finally:
+        db.close()
+
+
+def get_mikrotik_connection():
+    router = get_default_router()
+
+    return routeros_api.RouterOsApiPool(
+        router.host,
+        username=router.username,
+        password=router.password,
+        port=int(router.api_port or 8728),
+        plaintext_login=True,
+    )
+
 
 
 HOST = "10.70.1.1"
@@ -12,45 +38,40 @@ PORT = 8728
 
 
 def get_mikrotik_api():
-    return connect(
-        username=USERNAME,
-        password=PASSWORD,
-        host=HOST,
-        port=PORT,
-        timeout=5,
-    )
+    connection = get_mikrotik_connection()
+    return connection.get_api()
 
 
 def get_system_resources():
-    api = get_mikrotik_api()
-
-    return list(
-        api.path("/system/resource").select(
-            "uptime",
-            "version",
-            "cpu-load",
-            "free-memory",
-        )
-    )
+    connection = None
+    try:
+        connection = get_mikrotik_connection()
+        api = connection.get_api()
+        return api.get_resource("/system/resource").get()
+    except Exception as e:
+        return {
+            "status": "offline",
+            "message": "No se pudo conectar al MikroTik",
+            "error": str(e),
+        }
+    finally:
+        if connection:
+            try:
+                connection.disconnect()
+            except Exception:
+                pass
 
 
 def get_pppoe_secrets():
     api = get_mikrotik_api()
-    return list(api.path("/ppp/secret"))
+    return api.get_resource("/ppp/secret").get()
 
 
 def get_pppoe_active():
     api = get_mikrotik_api()
 
     return list(
-        api.path("/ppp/active").select(
-            ".id",
-            "name",
-            "address",
-            "uptime",
-            "service",
-            "caller-id",
-        )
+        api.get_resource("/ppp/active").get()
     )
 
 
@@ -58,10 +79,7 @@ def find_pppoe_secret(name: str):
     api = get_mikrotik_api()
 
     secrets = list(
-        api.path("/ppp/secret").select(
-            ".id",
-            "name",
-        )
+        api.get_resource("/ppp/secret").get()
     )
 
     for secret in secrets:
@@ -73,7 +91,7 @@ def find_pppoe_secret(name: str):
 
 def create_pppoe_secret(secret):
     api = get_mikrotik_api()
-    ppp_secret = api.path("/ppp/secret")
+    ppp_secret = api.get_resource("/ppp/secret")
 
     data = {
         "name": secret.name,
@@ -118,7 +136,7 @@ def update_pppoe_secret(
     disabled: bool = False,
 ):
     api = get_mikrotik_api()
-    ppp_secret = api.path("/ppp/secret")
+    ppp_secret = api.get_resource("/ppp/secret")
 
     existing = find_pppoe_secret(old_name)
 
@@ -157,7 +175,7 @@ def update_pppoe_secret(
 
 def disable_pppoe_secret(name: str):
     api = get_mikrotik_api()
-    ppp_secret = api.path("/ppp/secret")
+    ppp_secret = api.get_resource("/ppp/secret")
 
     existing = find_pppoe_secret(name)
 
@@ -182,7 +200,7 @@ def disable_pppoe_secret(name: str):
 
 def enable_pppoe_secret(name: str):
     api = get_mikrotik_api()
-    ppp_secret = api.path("/ppp/secret")
+    ppp_secret = api.get_resource("/ppp/secret")
 
     existing = find_pppoe_secret(name)
 
@@ -207,13 +225,10 @@ def enable_pppoe_secret(name: str):
 
 def remove_pppoe_active(name: str):
     api = get_mikrotik_api()
-    active = api.path("/ppp/active")
+    active = api.get_resource("/ppp/active")
 
     sessions = list(
-        active.select(
-            ".id",
-            "name",
-        )
+        active.get()
     )
 
     removed = 0
@@ -239,19 +254,14 @@ def remove_pppoe_active(name: str):
 
 def get_simple_queues():
     api = get_mikrotik_api()
-    return list(api.path("/queue/simple"))
+    return api.get_resource("/queue/simple").get()
 
 
 def get_interface_traffic(interface_name: str = "sfp-sfpplus1"):
     api = get_mikrotik_api()
 
     interfaces = list(
-        api.path("/interface").select(
-            ".id",
-            "name",
-            "rx-byte",
-            "tx-byte",
-        )
+        api.get_resource("/interface").get()
     )
 
     target = None
@@ -282,24 +292,11 @@ def get_pppoe_client_traffic():
     api = get_mikrotik_api()
 
     active_sessions = list(
-        api.path("/ppp/active").select(
-            "name",
-            "address",
-            "uptime",
-            "service",
-            "caller-id",
-        )
+        api.get_resource("/ppp/active").get()
     )
 
     interfaces = list(
-        api.path("/interface").select(
-            ".id",
-            "name",
-            "type",
-            "running",
-            "rx-byte",
-            "tx-byte",
-        )
+        api.get_resource("/interface").get()
     )
 
     results = []
@@ -358,14 +355,7 @@ def get_mikrotik_interfaces_debug():
     api = get_mikrotik_api()
 
     return list(
-        api.path("/interface").select(
-            ".id",
-            "name",
-            "type",
-            "running",
-            "rx-byte",
-            "tx-byte",
-        )
+        api.get_resource("/interface").get()
     )
 def ping_address(address: str, count: int = 4):
     target = str(address or "").strip()

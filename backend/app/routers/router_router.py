@@ -1,3 +1,4 @@
+import routeros_api
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -233,7 +234,17 @@ def test_router_connection(
         return {"error": "Router no encontrado"}
 
     try:
-        resources = get_system_resources()
+        connection = routeros_api.RouterOsApiPool(
+            router_item.host,
+            username=router_item.username,
+            password=router_item.password,
+            port=int(router_item.api_port or 8728),
+            plaintext_login=True,
+        )
+
+        api = connection.get_api()
+        resources = api.get_resource("/system/resource").get()
+        connection.disconnect()
 
         return {
             "status": "online",
