@@ -9114,3 +9114,102 @@ body {
   text-align: center;
   color: #64748b;
 }
+
+/* ===== WEB DESKTOP FIX: quitar fondos oscuros en módulos web ===== */
+@media (min-width: 769px) {
+  body,
+  #root {
+    background: #f1f5f9 !important;
+  }
+
+  .app,
+  .dashboard,
+  .dashboard-content,
+  .main-content,
+  .content,
+  .page,
+  .module-page,
+  .online-page,
+  .pppoe-page {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+  }
+
+  .card,
+  .panel,
+  .box,
+  .table-card,
+  .module-card,
+  .online-card,
+  .pppoe-card,
+  .traffic-card,
+  .router-card {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  table {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    color: #0f172a !important;
+  }
+
+  .dark,
+  .dark-card,
+  .dark-panel,
+  .dark-table,
+  .table-dark,
+  .bg-dark,
+  .bg-slate-900,
+  .bg-slate-950,
+  .bg-gray-900,
+  .bg-gray-950 {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .dark *,
+  .dark-card *,
+  .dark-panel *,
+  .dark-table *,
+  .table-dark *,
+  .bg-dark *,
+  .bg-slate-900 *,
+  .bg-slate-950 *,
+  .bg-gray-900 *,
+  .bg-gray-950 * {
+    color: #0f172a !important;
+  }
+
+  .sidebar,
+  .side-menu,
+  .nav-sidebar {
+    background: #ffffff !important;
+  }
+
+  .sidebar *,
+  .side-menu *,
+  .nav-sidebar * {
+    color: #0f172a !important;
+  }
+
+  .sidebar .active,
+  .side-menu .active,
+  .nav-sidebar .active {
+    background: #2563eb !important;
+    color: #ffffff !important;
+  }
+
+  .sidebar .active *,
+  .side-menu .active *,
+  .nav-sidebar .active * {
+    color: #ffffff !important;
+  }
+}
