@@ -1,9 +1,7 @@
+import { API } from "./apiBase";
 import axios from "axios";
 
-export const API =
-  import.meta.env.VITE_API_URL ||
-  localStorage.getItem("hsm_api_url") ||
-  `${window.location.protocol}//${window.location.hostname}:8000`;
+
 
 export function getToken() {
   return (
@@ -61,3 +59,5 @@ export function normalizeStatus(value) {
 export function isDeleted(item) {
   return normalizeStatus(item?.status || item?.estado || item?.customer_status) === "deleted";
 }
+
+export { API };

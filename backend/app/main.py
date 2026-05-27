@@ -55,20 +55,23 @@ app = FastAPI(
     version="0.1.0",
 )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://192.168.0.113:5173",
-        "http://localhost:5173",
+        "http://190.3.29.20:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5173",
         "capacitor://localhost",
         "http://localhost",
+        "https://localhost",
     ],
+    allow_origin_regex=r"http://(192\.168\.0\.113|190\.3\.29\.20|127\.0\.0\.1|localhost)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 app.include_router(dashboard_clients_router)
 app.include_router(router_router)

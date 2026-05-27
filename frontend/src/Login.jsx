@@ -2,8 +2,7 @@ import { useState } from "react";
 import { CapacitorHttp } from "@capacitor/core";
 import logo from "./assets/logo.png";
 
-const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
-
+import { API } from "./apiBase";
 function Login({ onLogin }) {
   const [form, setForm] = useState({
     username: "",
