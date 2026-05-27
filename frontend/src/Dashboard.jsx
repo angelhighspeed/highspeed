@@ -11,6 +11,7 @@ import ClientTraffic from "./ClientTraffic";
 import AutoCutManager from "./AutoCutManager";
 import BackupImportManager from "./BackupImportManager";
 
+import { API } from "./apiBase";
 import {
   BarChart,
   Bar,
@@ -25,8 +26,6 @@ import {
   Area,
   AreaChart,
 } from "recharts";
-
-const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
 
 const getAuthHeaders = () => ({
   headers: {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { API } from "./apiBase";
 import {
   Area,
   AreaChart,
@@ -9,11 +10,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-const API =
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://192.168.0.113:8000";
 
 const getAuthHeaders = () => ({
   headers: {

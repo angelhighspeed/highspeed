@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-const API = import.meta.env.VITE_API_URL || "http://192.168.0.113:8000";
-
+import { API } from "./apiBase";
 function getHeaders() {
   const token = localStorage.getItem("token");
   return {
