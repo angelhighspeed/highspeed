@@ -128,6 +128,56 @@ export default function MobileClients() {
     };
   }, [clients]);
 
+  
+const loadPlans = async () => {
+    try {
+      const data = await apiGet("/plans");
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.plans)
+        ? data.plans
+        : Array.isArray(data?.items)
+        ? data.items
+        : [];
+
+      setPlans(list);
+    } catch (err) {
+      console.warn("No se pudieron cargar planes:", err);
+      setPlans([]);
+    }
+  };
+
+  const getPlanName = (client) => {
+    const planId =
+      client?.plan_id ??
+      client?.internet_plan_id ??
+      client?.planId ??
+      client?.internetPlanId;
+
+    const direct =
+      client?.plan_name ||
+      client?.planName ||
+      client?.internet_plan ||
+      client?.internetPlan ||
+      client?.plan ||
+      "";
+
+    if (direct && !/^Plan\s*\d+$/i.test(String(direct).trim())) {
+      return direct;
+    }
+
+    const found = plans.find((p) => String(p.id) === String(planId));
+
+    if (!found) {
+      return planId ? `Plan ${planId}` : "-";
+    }
+
+    const name = found.name || found.nombre || `Plan ${planId}`;
+    const speed = found.speed || found.download_speed || "";
+
+    return speed ? `${name} - ${speed}` : name;
+  };
+
   const loadClients = async () => {
     try {
       setLoading(true);
@@ -160,15 +210,6 @@ export default function MobileClients() {
       setRouters(Array.isArray(data) ? data : data?.items || []);
     } catch {
       setRouters([]);
-    }
-  };
-
-  const loadPlans = async () => {
-    try {
-      const data = await apiGet("/plans");
-      setPlans(Array.isArray(data) ? data : data?.items || []);
-    } catch {
-      setPlans([]);
     }
   };
 
@@ -289,7 +330,8 @@ export default function MobileClients() {
       }
 
       resetForm();
-      await loadClients();
+      await loadPlans();
+    loadClients();
     } catch (err) {
       console.warn("Error guardando cliente:", err);
       alert(
@@ -302,7 +344,9 @@ export default function MobileClients() {
   };
 
   const activateClient = async (client) => {
-    const id = getId(client);
+    
+    if (!window.confirm(`¿Seguro que querés ACTIVAR a ${getName(client)}?`)) return;
+const id = getId(client);
 
     if (!id) {
       alert("Cliente sin ID.");
@@ -599,7 +643,7 @@ export default function MobileClients() {
 
                 <div>
                   <small>Plan</small>
-                  <strong>{client.plan_id || "-"}</strong>
+                  <strong>{getPlanName(client)}</strong>
                 </div>
               </div>
 
